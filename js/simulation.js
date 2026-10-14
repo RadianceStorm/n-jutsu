@@ -501,7 +501,7 @@ const simulation = {
         if (!tech.isTransverse && b.activeGun === 3) b.guns[3].waves = []; //empty array of longitudinal wave bullets
         if (tech.crouchAmmoCount) tech.crouchAmmoCount = 1 //this prevents hacking the tech by switching guns
         if (b.inventory.length > 0) b.activeGun = b.inventory[b.inventoryGun];
-        if (previousGun !== b.activeGun && previousGun !== null && previousGun !== undefined && b.guns[previousGun].name === "Melee") {
+        if (previousGun !== b.activeGun && previousGun !== null && previousGun !== undefined && b.guns[previousGun].name === "melee") {
             b.resetMeleeCombo();
             b.guns[previousGun].wasFiring = false;
         }
@@ -714,6 +714,12 @@ const simulation = {
         m.transY += (m.transSmoothY - m.transY);
     },
     edgeZoomOutSmooth: 1,
+    cameraShakeEndCycle: 0,
+    cameraShakeMagnitude: 0,
+    shakeCamera(magnitude, duration) {
+        simulation.cameraShakeMagnitude = Math.max(simulation.cameraShakeMagnitude, magnitude)
+        simulation.cameraShakeEndCycle = Math.max(simulation.cameraShakeEndCycle, simulation.cycle + duration)
+    },
     camera() {
         //zoom out when mouse gets near the edge of the window
         const dx = simulation.mouse.x / window.innerWidth - 0.5 //x distance from mouse to window center scaled by window width
@@ -724,7 +730,9 @@ const simulation = {
         ctx.save();
         ctx.translate(canvas.width2, canvas.height2); //center
         ctx.scale(simulation.zoom / simulation.edgeZoomOutSmooth, simulation.zoom / simulation.edgeZoomOutSmooth); //zoom in once centered
-        ctx.translate(-canvas.width2 + m.transX, -canvas.height2 + m.transY); //translate
+        const shake = simulation.cycle < simulation.cameraShakeEndCycle ? simulation.cameraShakeMagnitude * simulation.edgeZoomOutSmooth / simulation.zoom : 0
+        if (!shake) simulation.cameraShakeMagnitude = 0
+        ctx.translate(-canvas.width2 + m.transX + (Math.random() - 0.5) * 2 * shake, -canvas.height2 + m.transY + (Math.random() - 0.5) * 2 * shake); //translate
         // ctx.translate(-canvas.width2 + m.transX - player.velocity.x, -canvas.height2 + m.transY + player.velocity.y); //translate
         //calculate in game mouse position by undoing the zoom and translations
         simulation.mouseInGame.x = (simulation.mouse.x - canvas.width2) / simulation.zoom * simulation.edgeZoomOutSmooth + canvas.width2 - m.transX;
@@ -970,7 +978,7 @@ const simulation = {
         powerUps.powerUpStorage = []
         tech.resetAllTech(); //sets tech to default values
         b.resetAllGuns();
-        if (!isBuildRun && !isTrainingRun && !saveGame.isResuming) b.giveGuns("Melee");
+        if (!isBuildRun && !isTrainingRun && !saveGame.isResuming) b.giveGuns("melee");
         for (i = 0, len = b.guns.length; i < len; i++) { //find which gun 
             if (b.guns[i].name === "laser") b.guns[i].chooseFireMethod()
             if (b.guns[i].name === "nail gun") b.guns[i].chooseFireMethod()

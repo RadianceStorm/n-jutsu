@@ -15970,9 +15970,9 @@ const tech = {
         frequency: 2,
         frequencyDefault: 2,
         allowed() {
-            return tech.haveGunCheck("Melee")
+            return tech.haveGunCheck("melee")
         },
-        requires: "Melee",
+        requires: "melee",
         effect() {
             tech.isPressurePoint = true
         },
@@ -15990,9 +15990,9 @@ const tech = {
         frequency: 2,
         frequencyDefault: 2,
         allowed() {
-            return tech.haveGunCheck("Melee")
+            return tech.haveGunCheck("melee")
         },
-        requires: "Melee",
+        requires: "melee",
         effect() {
             tech.isMeleeDefensiveStance = true
         },
@@ -16010,9 +16010,9 @@ const tech = {
         frequency: 2,
         frequencyDefault: 2,
         allowed() {
-            return tech.haveGunCheck("Melee")
+            return tech.haveGunCheck("melee")
         },
-        requires: "Melee",
+        requires: "melee",
         effect() {
             tech.isMeleeCombo = true
         },
@@ -16031,7 +16031,7 @@ const tech = {
         frequency: 1,
         frequencyDefault: 1,
         allowed() {
-            return tech.isMeleeCombo && tech.haveGunCheck("Melee")
+            return tech.isMeleeCombo && tech.haveGunCheck("melee")
         },
         requires: "combo",
         effect() {
@@ -16051,9 +16051,9 @@ const tech = {
         frequency: 2,
         frequencyDefault: 2,
         allowed() {
-            return tech.haveGunCheck("Melee")
+            return tech.haveGunCheck("melee")
         },
-        requires: "Melee",
+        requires: "melee",
         effect() {
             tech.isBarrierBreaker = true
         },

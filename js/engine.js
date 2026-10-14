@@ -200,13 +200,8 @@ function collisionChecks(event) {
         const pair = pairs[i]
         if (pair.bodyA.endOnCollision && !pair.bodyA.isMeleeStrike) pair.bodyA.endCycle = simulation.cycle - 1
         if (pair.bodyB.endOnCollision && !pair.bodyB.isMeleeStrike) pair.bodyB.endCycle = simulation.cycle - 1
-        if (pair.bodyA.isMeleeStrike) {
-            const target = pair.bodyB.parent && pair.bodyB.parent.mob ? pair.bodyB.parent : pair.bodyB
-            pair.bodyA.onMeleeHit(target)
-        } else if (pair.bodyB.isMeleeStrike) {
-            const target = pair.bodyA.parent && pair.bodyA.parent.mob ? pair.bodyA.parent : pair.bodyA
-            pair.bodyB.onMeleeHit(target)
-        }
+        const meleeStrike = pair.bodyA.isMeleeStrike ? pair.bodyA : pair.bodyB.isMeleeStrike ? pair.bodyB : null
+        const meleeTarget = meleeStrike ? (meleeStrike === pair.bodyA ? pair.bodyB : pair.bodyA) : null
         const bodyA = pair.bodyA.parent && pair.bodyA.parent.mob ? pair.bodyA.parent : pair.bodyA
         const bodyB = pair.bodyB.parent && pair.bodyB.parent.mob ? pair.bodyB.parent : pair.bodyB
         let who
@@ -218,10 +213,18 @@ function collisionChecks(event) {
             who = bodyB
             obj = bodyA
         } else {
+            if (meleeStrike) {
+                meleeStrike.onMeleeHit(meleeTarget)
+                meleeStrike.onMeleePhysicsImpact()
+            }
             continue
         }
 
         collideMob(who, obj, pair)
+        if (meleeStrike) {
+            meleeStrike.onMeleeHit(who)
+            meleeStrike.onMeleePhysicsImpact()
+        }
     }
 
     function collideMob(who, obj, pair) {

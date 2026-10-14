@@ -739,7 +739,7 @@ const m = {
         if (tech.isBotArmor) dmg *= 0.96 ** b.totalBots()
         if (tech.isHarmArmor && m.lastHarmCycle + 600 > m.cycle) dmg *= 0.5;
         if (tech.isNoFireDefense && m.cycle > m.lastFireFieldCycle + 120) dmg *= 0.3
-        if (tech.isMeleeDefensiveStance && b.activeGun !== null && b.activeGun !== undefined && b.guns[b.activeGun].name === "Melee" && simulation.cycle - b.meleeLastAttackCycle >= 30) dmg *= 0.6
+        if (tech.isMeleeDefensiveStance && b.activeGun !== null && b.activeGun !== undefined && b.guns[b.activeGun].name === "melee" && simulation.cycle - b.meleeLastAttackCycle >= 30) dmg *= 0.6
         if (tech.isTurret && m.crouch) dmg *= 0.3;
         if (tech.isFirstDer && b.inventory[0] === b.activeGun) dmg *= 0.85 ** b.inventory.length
         if (tech.isScaleInvariance && player.scale < 1) dmg *= tech.isBijection ? 0.5 : 0.7
@@ -4521,7 +4521,7 @@ const m = {
     fieldEvent: null,
     fieldUpgrades: [
         {
-            name: "Field Emitter",
+            name: "field emitter",
             descriptionFunction() {
                 return `<em>initial field</em><br>use <strong class='energy' data-help='energy'>energy</strong> to <strong>deflect</strong> mobs and <strong>throw</strong> <strong class='block' data-help='block'>blocks</strong>
         <br><strong>6</strong> <strong class='energy' data-help='energy'>energy</strong> per second`
@@ -7682,5 +7682,5 @@ const m = {
 };
 // Set isDisabled: false on new fields to opt them into selection.
 for (const field of m.fieldUpgrades) {
-    if (field.isDisabled === undefined) field.isDisabled = field.name !== "Field Emitter";
+    if (field.isDisabled === undefined) field.isDisabled = field.name !== "field emitter";
 }
