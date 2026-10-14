@@ -4478,11 +4478,11 @@ const m = {
     setField(index) {
         // console.log("field mode: ", index)
         window.removeEventListener("keydown", m.fieldEvent);
-        if (m.fieldUpgrades[8] && m.fieldUpgrades[8].collider) {
+        if (m.fieldUpgrades[8].collider) {
             Matter.Composite.remove(engine.world, m.fieldUpgrades[8].collider);
             m.fieldUpgrades[8].collider = null
         }
-        if (m.fieldUpgrades[11]) m.fieldUpgrades[11].clear() //remove portals
+        m.fieldUpgrades[11].clear() //remove portals
 
         if (isNaN(index)) { //find index by name
             let found = false
@@ -4495,7 +4495,6 @@ const m = {
             }
             if (!found) return //if you can't find the field don't give a field to avoid game crash
         }
-        if (index < 0 || index >= m.fieldUpgrades.length) return
         m.fieldMode = index;
         document.getElementById("field").innerHTML = m.fieldUpgrades[index].name
         m.setHoldDefaults();
@@ -7677,9 +7676,3 @@ const m = {
         }
     },
 };
-if (m.fieldUpgrades[0]) {
-    m.fieldUpgrades[0].name = "Field Emitter";
-    if (typeof m.fieldUpgrades[0].text === "function") m.fieldUpgrades[0].text = () => "Field Emitter";
-}
-m.fieldUpgrades = [m.fieldUpgrades[0]];
-m.fieldMode = 0;
