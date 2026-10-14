@@ -739,6 +739,7 @@ const m = {
         if (tech.isBotArmor) dmg *= 0.96 ** b.totalBots()
         if (tech.isHarmArmor && m.lastHarmCycle + 600 > m.cycle) dmg *= 0.5;
         if (tech.isNoFireDefense && m.cycle > m.lastFireFieldCycle + 120) dmg *= 0.3
+        if (tech.isMeleeDefensiveStance && b.activeGun !== null && b.activeGun !== undefined && b.guns[b.activeGun].name === "Melee" && simulation.cycle - b.meleeLastAttackCycle >= 30) dmg *= 0.6
         if (tech.isTurret && m.crouch) dmg *= 0.3;
         if (tech.isFirstDer && b.inventory[0] === b.activeGun) dmg *= 0.85 ** b.inventory.length
         if (tech.isScaleInvariance && player.scale < 1) dmg *= tech.isBijection ? 0.5 : 0.7

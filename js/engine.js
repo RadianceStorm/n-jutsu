@@ -198,8 +198,15 @@ function collisionChecks(event) {
     for (let i = 0, j = pairs.length; i != j; i++) {
         //mob + (player,bullet,body) collisions
         const pair = pairs[i]
-        if (pair.bodyA.endOnCollision) pair.bodyA.endCycle = simulation.cycle - 1
-        if (pair.bodyB.endOnCollision) pair.bodyB.endCycle = simulation.cycle - 1
+        if (pair.bodyA.endOnCollision && !pair.bodyA.isMeleeStrike) pair.bodyA.endCycle = simulation.cycle - 1
+        if (pair.bodyB.endOnCollision && !pair.bodyB.isMeleeStrike) pair.bodyB.endCycle = simulation.cycle - 1
+        if (pair.bodyA.isMeleeStrike) {
+            const target = pair.bodyB.parent && pair.bodyB.parent.mob ? pair.bodyB.parent : pair.bodyB
+            pair.bodyA.onMeleeHit(target)
+        } else if (pair.bodyB.isMeleeStrike) {
+            const target = pair.bodyA.parent && pair.bodyA.parent.mob ? pair.bodyA.parent : pair.bodyA
+            pair.bodyB.onMeleeHit(target)
+        }
         const bodyA = pair.bodyA.parent && pair.bodyA.parent.mob ? pair.bodyA.parent : pair.bodyA
         const bodyB = pair.bodyB.parent && pair.bodyB.parent.mob ? pair.bodyB.parent : pair.bodyB
         let who
@@ -333,7 +340,13 @@ function collisionChecks(event) {
                             obj.beforeDmg(who); //some bullets do actions when they hits things, like despawn //forces don't seem to work here
                             let dmg = (obj.dmg + 0.15 * obj.mass * Vector.magnitude(Vector.sub(who.velocity, obj.velocity)))
                             if (tech.isCrit && who.isStunned) dmg *= 4
+                            if (tech.isBarrierBreaker && obj.isMeleeStrike && who.shield) dmg *= 2
+                            const shieldTargetID = tech.isBarrierBreaker && obj.isMeleeStrike && who.shield && who.alive ? who.shieldTargetID : null
                             if (!obj.isNotCollisionsDmg) who.damage(dmg, false, { x: pair.activeContacts[0].vertex.x, y: pair.activeContacts[0].vertex.y }, true)
+                            if (shieldTargetID !== null && !who.alive) {
+                                const shieldTarget = mob.find(target => target.id === shieldTargetID)
+                                if (shieldTarget && shieldTarget.alive) mobs.statusStun(shieldTarget, 60)
+                            }
                             if (who.alive) who.foundPlayer();
                             simulation.drawList.push({ //add dmg to draw queue
                                 x: pair.activeContacts[0].vertex.x,

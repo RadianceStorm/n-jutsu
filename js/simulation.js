@@ -497,9 +497,14 @@ const simulation = {
         }
     },
     switchGun() {
+        const previousGun = b.activeGun;
         if (!tech.isTransverse && b.activeGun === 3) b.guns[3].waves = []; //empty array of longitudinal wave bullets
         if (tech.crouchAmmoCount) tech.crouchAmmoCount = 1 //this prevents hacking the tech by switching guns
         if (b.inventory.length > 0) b.activeGun = b.inventory[b.inventoryGun];
+        if (previousGun !== b.activeGun && previousGun !== null && previousGun !== undefined && b.guns[previousGun].name === "Melee") {
+            b.resetMeleeCombo();
+            b.guns[previousGun].wasFiring = false;
+        }
         b.guns[8].charge = 0; // foam charge to 0
         simulation.updateGunHUD();
         simulation.boldActiveGunHUD();
@@ -965,6 +970,7 @@ const simulation = {
         powerUps.powerUpStorage = []
         tech.resetAllTech(); //sets tech to default values
         b.resetAllGuns();
+        if (!isBuildRun && !isTrainingRun && !saveGame.isResuming) b.giveGuns("Melee");
         for (i = 0, len = b.guns.length; i < len; i++) { //find which gun 
             if (b.guns[i].name === "laser") b.guns[i].chooseFireMethod()
             if (b.guns[i].name === "nail gun") b.guns[i].chooseFireMethod()

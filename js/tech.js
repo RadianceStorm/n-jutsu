@@ -5,6 +5,10 @@ const tech = {
     aperiodicTiling: 0,
     qubit: 0,
     isPressurePoint: false,
+    isMeleeDefensiveStance: false,
+    isMeleeCombo: false,
+    isMeleeComboFinisher: false,
+    isBarrierBreaker: false,
     resetAllTech() {
         for (let i = 0, len = tech.tech.length; i < len; i++) {
             tech.tech[i].isLost = false
@@ -15959,7 +15963,7 @@ const tech = {
     {
         name: "pressure point",
         isDisabled: false,
-        description: `Melee attacks have a <strong>25%</strong> chance to <strong>stun</strong> mobs for up to <strong>1 second</strong>`,
+        description: `<strong>melee</strong> attacks have a <strong>25%</strong> chance to <strong>stun</strong> mobs<br>for up to <strong>1 second</strong>`,
         isGunTech: true,
         maxCount: 1,
         count: 0,
@@ -15974,6 +15978,87 @@ const tech = {
         },
         remove() {
             tech.isPressurePoint = false
+        }
+    },
+    {
+        name: "defensive stance",
+        isDisabled: false,
+        description: `<strong>0.6x</strong> <strong class='color-defense' data-help='defense'>damage taken</strong><br>if you have not attacked for <strong>0.5 seconds</strong>`,
+        isGunTech: true,
+        maxCount: 1,
+        count: 0,
+        frequency: 2,
+        frequencyDefault: 2,
+        allowed() {
+            return tech.haveGunCheck("Melee")
+        },
+        requires: "Melee",
+        effect() {
+            tech.isMeleeDefensiveStance = true
+        },
+        remove() {
+            tech.isMeleeDefensiveStance = false
+        }
+    },
+    {
+        name: "combo",
+        isDisabled: false,
+        description: `landing <strong>melee</strong> hits increases <strong class='color-fire-rate' data-help='fire-rate'>attack speed</strong> by <strong>1.1×</strong>, up to <strong>3×</strong>`,
+        isGunTech: true,
+        maxCount: 1,
+        count: 0,
+        frequency: 2,
+        frequencyDefault: 2,
+        allowed() {
+            return tech.haveGunCheck("Melee")
+        },
+        requires: "Melee",
+        effect() {
+            tech.isMeleeCombo = true
+        },
+        remove() {
+            tech.isMeleeCombo = false
+            b.resetMeleeCombo()
+        }
+    },
+    {
+        name: "combo finisher",
+        isDisabled: false,
+        description: `releasing a <strong>combo</strong> throws a heavy attack<br>that deals extra <strong class='color-d' data-help='damage'>damage</strong>`,
+        isGunTech: true,
+        maxCount: 1,
+        count: 0,
+        frequency: 1,
+        frequencyDefault: 1,
+        allowed() {
+            return tech.isMeleeCombo && tech.haveGunCheck("Melee")
+        },
+        requires: "combo",
+        effect() {
+            tech.isMeleeComboFinisher = true
+        },
+        remove() {
+            tech.isMeleeComboFinisher = false
+        }
+    },
+    {
+        name: "barrier breaker",
+        isDisabled: false,
+        description: `<strong>melee</strong> attacks deal <strong>2×</strong> <strong class='color-d' data-help='damage'>damage</strong> to mob shields<br>and stuns mobs for <strong>1 second</strong> after their shield breaks`,
+        isGunTech: true,
+        maxCount: 1,
+        count: 0,
+        frequency: 2,
+        frequencyDefault: 2,
+        allowed() {
+            return tech.haveGunCheck("Melee")
+        },
+        requires: "Melee",
+        effect() {
+            tech.isBarrierBreaker = true
+        },
+        remove() {
+            tech.isBarrierBreaker = false
         }
     }
     ],

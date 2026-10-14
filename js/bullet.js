@@ -153,6 +153,13 @@ function advancePhononWaveFront(position, radius, angle, halfArc, edge1Advance, 
 }
 
 const b = {
+    meleeComboMultiplier: 1,
+    meleeLastHitCycle: -1000,
+    meleeLastAttackCycle: -1000,
+    resetMeleeCombo() {
+        b.meleeComboMultiplier = 1;
+        b.meleeLastHitCycle = -1000;
+    },
     queueSuperBalls({ count = 0, num, speed, delay }) {
         simulation.ephemera.push({
             saveType: "super balls", count, num, speed, delay,
@@ -520,6 +527,9 @@ const b = {
         b.setFireCD();
     },
     resetAllGuns() {
+        b.resetMeleeCombo();
+        b.meleeLastAttackCycle = -1000;
+        b.guns[12].wasFiring = false;
         b.inventory = []; //removes guns and ammo
         for (let i = 0, len = b.guns.length; i < len; ++i) {
             b.guns[i].count = 0;
@@ -4629,35 +4639,80 @@ const b = {
             y: speed * Math.sin(dir)
         });
     },
-    meleeStrike(where, angle) {
+    meleeStrike(where, angle, isFinisher = false) {
+        const energyCost = 0.02
+        if (m.energy < energyCost) return null
+        m.energy -= energyCost
         const me = bullet.length
-        bullet[me] = Bodies.polygon(where.x, where.y, 12, 14, {
+        const speedMultiplier = isFinisher ? 2 : 1
+        const flightCycles = 10
+        const speed = 32 * 2 / 3 * speedMultiplier
+        bullet[me] = Bodies.polygon(where.x, where.y, 12, isFinisher ? 21 : 14, {
             angle,
             friction: 0.5,
             frictionAir: 0,
-            dmg: 3,
+            dmg: isFinisher ? 12 : 3,
             classType: "bullet",
-            endCycle: simulation.cycle + 8,
+            endCycle: simulation.cycle + flightCycles + (isFinisher ? 9 : 0),
             collisionFilter: {
                 category: cat.bullet,
                 mask: cat.map | cat.body | cat.mob | cat.mobBullet | cat.mobShield
             },
-            endOnCollision: true,
+            endOnCollision: !isFinisher,
             minDmgSpeed: 0,
             density: 0.004,
+            isMeleeStrike: true,
+            isMeleeFinisher: isFinisher,
+            meleeOrigin: { x: where.x, y: where.y },
+            meleeMaxDistance: speed * flightCycles,
+            meleeReachedRange: false,
+            meleeHitRegistered: false,
+            onMeleeHit(target) {
+                if (this.meleeHitRegistered) return
+                this.meleeHitRegistered = true
+                this.endCycle = simulation.cycle + 1
+                m.energy = Math.min(m.maxEnergy, m.energy + energyCost)
+                if (target && target !== player && target !== playerBody && target !== playerHead) {
+                    const targetVelocity = target.velocity
+                    if (target.isStatic || !Number.isFinite(target.mass)) {
+                        Matter.Body.setVelocity(player, { x: 0, y: 0 })
+                    } else {
+                        const momentumScale = target.mass / player.mass
+                        Matter.Body.setVelocity(player, {
+                            x: targetVelocity.x * momentumScale,
+                            y: targetVelocity.y * momentumScale
+                        })
+                        Matter.Body.setVelocity(target, {
+                            x: targetVelocity.x * 0.5,
+                            y: targetVelocity.y * 0.5
+                        })
+                    }
+                }
+            },
             beforeDmg(who) {
                 if (tech.isPressurePoint && Math.random() < 0.25) {
                     mobs.statusStun(who, 1 + Math.floor(60 * Math.random()))
                 }
+                if (!this.isMeleeFinisher && tech.isMeleeCombo && !who.shield && !who.isShielded && !who.isInvulnerable && who.damageReduction > 0) {
+                    b.meleeComboMultiplier = Math.min(3, b.meleeComboMultiplier * 1.1)
+                    b.meleeLastHitCycle = simulation.cycle
+                }
             },
             onEnd() { },
-            do() { }
+            do() {
+                if (this.isMeleeFinisher && !this.meleeReachedRange && Vector.magnitude(Vector.sub(this.position, this.meleeOrigin)) >= this.meleeMaxDistance) {
+                    Matter.Body.setVelocity(this, { x: 0, y: 0 })
+                    this.endCycle = Math.min(this.endCycle, simulation.cycle + 4)
+                    this.meleeReachedRange = true
+                }
+            }
         })
         Matter.Body.setVelocity(bullet[me], {
-            x: 0.5 * player.velocity.x + 32 * 2 / 3 * Math.cos(angle),
-            y: 0.5 * player.velocity.y + 32 * 2 / 3 * Math.sin(angle)
+            x: 0.5 * player.velocity.x + speed * Math.cos(angle),
+            y: 0.5 * player.velocity.y + speed * Math.sin(angle)
         })
         Composite.add(engine.world, bullet[me])
+        return bullet[me]
     },
     superBall(where, velocity, radius) {
         let gravity = 0.001
@@ -9094,27 +9149,55 @@ const b = {
             name: "Melee",
             isDisabled: false,
             descriptionFunction() {
-                return `launch a short-range <strong>strike</strong> that quickly vanishes<br>slightly pushes you forward; fires rapidly with infinite ammo`
+                return `throw <strong>punches</strong> using <strong class='energy' data-help='energy'>energy</strong><br>automatically changes your <strong class='color-speed' data-help='movement'>momentum</strong> to chain hits<br>costs</strong> 0 <strong class='color-ammo'>ammo</strong>`
             },
             ammo: Infinity,
             ammoPack: Infinity,
             defaultAmmoPack: Infinity,
             have: false,
+            wasFiring: false,
             fire() {
                 const angle = m.angle + (Math.random() - 0.5) * Math.PI / 18
                 const where = {
                     x: m.pos.x + 30 * Math.cos(angle),
                     y: m.pos.y + 30 * Math.sin(angle)
                 }
-                b.meleeStrike(where, angle)
+                const strike = b.meleeStrike(where, angle)
+                if (!strike) return
+                b.meleeLastAttackCycle = simulation.cycle
                 if (!m.crouch) {
-                    const recoil = 0.012
+                    const hasCombo = tech.isMeleeCombo && b.meleeComboMultiplier > 1
+                    const recoil = hasCombo ? 0 : 0.012
                     player.force.x += recoil * Math.cos(angle)
                     player.force.y += recoil * Math.sin(angle)
                 }
-                m.fireCDcycle = m.cycle + Math.floor(9 * b.fireCDscale)
+                m.fireCDcycle = m.cycle + Math.max(1, Math.floor(9 * b.fireCDscale / (tech.isMeleeCombo ? b.meleeComboMultiplier : 1)))
             },
-            do() { }
+            do() {
+                if (tech.isMeleeCombo && b.meleeLastHitCycle + 120 < simulation.cycle) b.resetMeleeCombo()
+                if (input.fire) {
+                    this.wasFiring = true
+                } else if (this.wasFiring) {
+                    if (tech.isMeleeComboFinisher && b.meleeComboMultiplier >= 2.5) {
+                        const angle = m.angle
+                        const where = {
+                            x: m.pos.x + 30 * Math.cos(angle),
+                            y: m.pos.y + 30 * Math.sin(angle)
+                        }
+                        const strike = b.meleeStrike(where, angle, true)
+                        if (strike) {
+                            b.meleeLastAttackCycle = simulation.cycle
+                            if (!m.crouch) {
+                                const recoil = 0.036
+                                player.force.x += recoil * Math.cos(angle)
+                                player.force.y += recoil * Math.sin(angle)
+                            }
+                        }
+                    }
+                    b.resetMeleeCombo()
+                    this.wasFiring = false
+                }
+            }
         },
     ],
 };
