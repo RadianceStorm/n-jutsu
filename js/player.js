@@ -4487,7 +4487,7 @@ const m = {
         if (isNaN(index)) { //find index by name
             let found = false
             for (let i = 0; i < m.fieldUpgrades.length; i++) {
-                if (String(index).toLowerCase() === m.fieldUpgrades[i].name.toLowerCase()) {
+                if (index === m.fieldUpgrades[i].name) {
                     index = i;
                     found = true;
                     break;
@@ -7677,4 +7677,9 @@ const m = {
         }
     },
 };
-if (m.fieldUpgrades[0]) m.fieldUpgrades[0].name = "Field Emitter";
+if (m.fieldUpgrades[0]) {
+    m.fieldUpgrades[0].name = "Field Emitter";
+    if (typeof m.fieldUpgrades[0].text === "function") m.fieldUpgrades[0].text = () => "Field Emitter";
+}
+m.fieldUpgrades = [m.fieldUpgrades[0]];
+m.fieldMode = 0;

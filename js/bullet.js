@@ -9059,3 +9059,7 @@ const b = {
         // },
     ],
 };
+b.guns = [];
+b.inventory = [];
+b.activeGun = null;
+b.inventoryGun = 0;
