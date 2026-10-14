@@ -423,20 +423,23 @@ const b = {
             //find what guns player doesn't have
             options = []
             for (let i = 0, len = b.guns.length; i < len; i++) {
-                if (!b.guns[i].have) options.push(i)
+                if (!b.guns[i].have && !b.guns[i].isDisabled) options.push(i)
             }
             if (options.length === 0) return
             //randomly pick from list of possible guns
             gun = options[Math.floor(Math.random() * options.length)]
         }
         if (gun === "all") {
+            let inventoryIndex = 0
             for (let i = 0; i < b.guns.length; i++) {
-                b.inventory[i] = i;
+                if (b.guns[i].isDisabled) continue
+                b.inventory[inventoryIndex++] = i;
                 b.guns[i].have = true;
                 if (b.guns[i].ammo !== Infinity) b.guns[i].ammo = Math.ceil(b.guns[i].ammoPack * ammoPacks);
             }
+            b.inventory.length = inventoryIndex;
             b.inventoryGun = 0;
-            b.activeGun = b.inventory[0];
+            b.activeGun = b.inventory[0] ?? null;
         } else {
             if (isNaN(gun)) { //find gun by name
                 let found = false;
@@ -449,7 +452,7 @@ const b = {
                 }
                 if (!found) return //if no gun found don't give a gun
             }
-            if (!b.guns[gun]) return //invalid gun index
+            if (!b.guns[gun] || b.guns[gun].isDisabled) return //invalid or unavailable gun
             if (!b.guns[gun].have) b.inventory.push(gun);
             b.guns[gun].have = true;
             if (b.guns[gun].ammo !== Infinity) b.guns[gun].ammo = Math.ceil(b.guns[gun].ammoPack * ammoPacks);
@@ -4625,6 +4628,36 @@ const b = {
             x: speed * Math.cos(dir),
             y: speed * Math.sin(dir)
         });
+    },
+    meleeStrike(where, angle) {
+        const me = bullet.length
+        bullet[me] = Bodies.polygon(where.x, where.y, 12, 14, {
+            angle,
+            friction: 0.5,
+            frictionAir: 0,
+            dmg: 3,
+            classType: "bullet",
+            endCycle: simulation.cycle + 8,
+            collisionFilter: {
+                category: cat.bullet,
+                mask: cat.map | cat.body | cat.mob | cat.mobBullet | cat.mobShield
+            },
+            endOnCollision: true,
+            minDmgSpeed: 0,
+            density: 0.004,
+            beforeDmg(who) {
+                if (tech.isPressurePoint && Math.random() < 0.25) {
+                    mobs.statusStun(who, 1 + Math.floor(60 * Math.random()))
+                }
+            },
+            onEnd() { },
+            do() { }
+        })
+        Matter.Body.setVelocity(bullet[me], {
+            x: 0.5 * player.velocity.x + 32 * 2 / 3 * Math.cos(angle),
+            y: 0.5 * player.velocity.y + 32 * 2 / 3 * Math.sin(angle)
+        })
+        Composite.add(engine.world, bullet[me])
     },
     superBall(where, velocity, radius) {
         let gravity = 0.001
@@ -9057,5 +9090,35 @@ const b = {
         //         ctx.stroke()
         //     },
         // },
+        {
+            name: "Melee",
+            isDisabled: false,
+            descriptionFunction() {
+                return `launch a short-range <strong>strike</strong> that quickly vanishes<br>slightly pushes you forward; fires rapidly with infinite ammo`
+            },
+            ammo: Infinity,
+            ammoPack: Infinity,
+            defaultAmmoPack: Infinity,
+            have: false,
+            fire() {
+                const angle = m.angle + (Math.random() - 0.5) * Math.PI / 18
+                const where = {
+                    x: m.pos.x + 30 * Math.cos(angle),
+                    y: m.pos.y + 30 * Math.sin(angle)
+                }
+                b.meleeStrike(where, angle)
+                if (!m.crouch) {
+                    const recoil = 0.012
+                    player.force.x += recoil * Math.cos(angle)
+                    player.force.y += recoil * Math.sin(angle)
+                }
+                m.fireCDcycle = m.cycle + Math.floor(9 * b.fireCDscale)
+            },
+            do() { }
+        },
     ],
 };
+// Set isDisabled: false on new guns to opt them into selection.
+for (const gun of b.guns) {
+    if (gun.isDisabled === undefined) gun.isDisabled = true;
+}

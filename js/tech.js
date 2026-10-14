@@ -4,6 +4,7 @@ const tech = {
     removeCount: 0,
     aperiodicTiling: 0,
     qubit: 0,
+    isPressurePoint: false,
     resetAllTech() {
         for (let i = 0, len = tech.tech.length; i < len; i++) {
             tech.tech[i].isLost = false
@@ -90,7 +91,7 @@ const tech = {
         if (index === 'random') {
             let options = [];
             for (let i = 0; i < tech.tech.length; i++) {
-                if (tech.tech[i].count < tech.tech[i].maxCount && tech.tech[i].allowed() && !tech.tech[i].isJunk && !tech.tech[i].isLore && !tech.tech[i].isBadRandomOption) options.push(i);
+                if (!tech.tech[i].isDisabled && tech.tech[i].count < tech.tech[i].maxCount && tech.tech[i].allowed() && !tech.tech[i].isJunk && !tech.tech[i].isLore && !tech.tech[i].isBadRandomOption) options.push(i);
             }
             // give a random tech from the tech I don't have
             if (options.length > 0) {
@@ -110,13 +111,13 @@ const tech = {
                 }
                 if (!found) return //if name not found don't give any tech
             }
+            if (tech.tech[index].isDisabled) return
             if (tech.isMetaAnalysis && tech.tech[index].isJunk) {
                 simulation.inGameConsole(`//tech: meta-analysis replaced junk tech with random tech`);
                 tech.giveTech('random')
                 for (let i = 0; i < 2; i++) powerUps.spawn(m.pos.x + 40 * Math.random(), m.pos.y + 40 * Math.random(), "research");
                 return
             }
-
             if (tech.tech[index].isLost) tech.tech[index].isLost = false; //give specific tech
             if (tech.isBanish && tech.tech[index].isBanished) tech.tech[index].isBanished = false //stops the bug where you can't gets stacks of tech you take with decoherence, I think
             if (tech.isDamageFieldTech && tech.tech[index].isFieldTech) {
@@ -15954,6 +15955,26 @@ const tech = {
             this.maxCount = lore.techGoal;
             this.description = `<strong class="lore-text">this</strong> <br> &nbsp;`
         }
+    },
+    {
+        name: "pressure point",
+        isDisabled: false,
+        description: `Melee attacks have a <strong>25%</strong> chance to <strong>stun</strong> mobs for up to <strong>1 second</strong>`,
+        isGunTech: true,
+        maxCount: 1,
+        count: 0,
+        frequency: 2,
+        frequencyDefault: 2,
+        allowed() {
+            return tech.haveGunCheck("Melee")
+        },
+        requires: "Melee",
+        effect() {
+            tech.isPressurePoint = true
+        },
+        remove() {
+            tech.isPressurePoint = false
+        }
     }
     ],
     //variables use for gun tech upgrades
@@ -16366,4 +16387,8 @@ const tech = {
     // isCasimirHealth: null,
     // isCasimirRandom: null,
     // mergedList: null,
+}
+// Set isDisabled: false on new tech to opt it into selection.
+for (const item of tech.tech) {
+    if (item.isDisabled === undefined) item.isDisabled = true;
 }

@@ -443,7 +443,7 @@ const m = {
             //randomize field
             if (keep !== "field") {
                 const fields = [] //not field emitter or fields only found in lore
-                for (let i = 1; i < m.fieldUpgrades.length; i++) if (!m.fieldUpgrades[i].isLoreField) fields.push(i)
+                for (let i = 1; i < m.fieldUpgrades.length; i++) if (!m.fieldUpgrades[i].isLoreField && !m.fieldUpgrades[i].isDisabled) fields.push(i)
                 m.setField(fields[Math.floor(Math.random() * fields.length)])
             }
             if (keep !== "gun") {
@@ -4477,17 +4477,10 @@ const m = {
     },
     setField(index) {
         // console.log("field mode: ", index)
-        window.removeEventListener("keydown", m.fieldEvent);
-        if (m.fieldUpgrades[8].collider) {
-            Matter.Composite.remove(engine.world, m.fieldUpgrades[8].collider);
-            m.fieldUpgrades[8].collider = null
-        }
-        m.fieldUpgrades[11].clear() //remove portals
-
         if (isNaN(index)) { //find index by name
             let found = false
             for (let i = 0; i < m.fieldUpgrades.length; i++) {
-                if (index === m.fieldUpgrades[i].name) {
+                if (String(index).toLowerCase() === m.fieldUpgrades[i].name.toLowerCase()) {
                     index = i;
                     found = true;
                     break;
@@ -4495,6 +4488,16 @@ const m = {
             }
             if (!found) return //if you can't find the field don't give a field to avoid game crash
         }
+        index = Number(index)
+        if (!m.fieldUpgrades[index] || m.fieldUpgrades[index].isDisabled) return
+
+        window.removeEventListener("keydown", m.fieldEvent);
+        if (m.fieldUpgrades[8].collider) {
+            Matter.Composite.remove(engine.world, m.fieldUpgrades[8].collider);
+            m.fieldUpgrades[8].collider = null
+        }
+        m.fieldUpgrades[11].clear() //remove portals
+
         m.fieldMode = index;
         document.getElementById("field").innerHTML = m.fieldUpgrades[index].name
         m.setHoldDefaults();
@@ -4517,7 +4520,7 @@ const m = {
     fieldEvent: null,
     fieldUpgrades: [
         {
-            name: "field emitter",
+            name: "Field Emitter",
             descriptionFunction() {
                 return `<em>initial field</em><br>use <strong class='energy' data-help='energy'>energy</strong> to <strong>deflect</strong> mobs and <strong>throw</strong> <strong class='block' data-help='block'>blocks</strong>
         <br><strong>6</strong> <strong class='energy' data-help='energy'>energy</strong> per second`
@@ -7676,3 +7679,7 @@ const m = {
         }
     },
 };
+// Set isDisabled: false on new fields to opt them into selection.
+for (const field of m.fieldUpgrades) {
+    if (field.isDisabled === undefined) field.isDisabled = field.name !== "Field Emitter";
+}

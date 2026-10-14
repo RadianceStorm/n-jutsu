@@ -269,6 +269,9 @@ const powerUps = {
         }
     },
     choose(type, index) {
+        if (type === "gun" && (!b.guns[index] || b.guns[index].isDisabled)) return
+        if (type === "field" && (!m.fieldUpgrades[index] || m.fieldUpgrades[index].isDisabled)) return
+        if (type === "tech" && (!tech.tech[index] || tech.tech[index].isDisabled)) return
         if (type === "gun") {
             b.giveGuns(index)
             let text = `<div class="circle-grid gun"></div> b.giveGuns("<strong class='color-text'>${b.guns[index].name}</strong>")`
@@ -284,7 +287,7 @@ const powerUps = {
                 //find tech that matches field
                 const techPool = []
                 for (let j = 0, len = tech.tech.length; j < len; j++) {
-                    if (tech.tech[j].isFieldTech && tech.tech[j].allowed() && !tech.tech[j].isJunk && !tech.tech[j].isBadRandomOption && tech.tech[j].count < tech.tech[j].maxCount) {
+                    if (!tech.tech[j].isDisabled && tech.tech[j].isFieldTech && tech.tech[j].allowed() && !tech.tech[j].isJunk && !tech.tech[j].isBadRandomOption && tech.tech[j].count < tech.tech[j].maxCount) {
                         techPool.push(j)
                     }
                 }
@@ -308,7 +311,7 @@ const powerUps = {
             if (tech.isExtraGunTech && isSkin) {
                 const pool = []
                 for (let j = 0, len = tech.tech.length; j < len; j++) {
-                    if (tech.tech[j].isSkinUpgrade && tech.tech[j].allowed() && tech.tech[j].count < tech.tech[j].maxCount) {
+                    if (!tech.tech[j].isDisabled && tech.tech[j].isSkinUpgrade && tech.tech[j].allowed() && tech.tech[j].count < tech.tech[j].maxCount) {
                         pool.push(j)
                     }
                 }
@@ -390,6 +393,14 @@ const powerUps = {
         if (m.holdingTarget) m.drop();
         if (m.fieldMode === 11) m.fieldUpgrades[11].cancelPresses() //a portal press from before the choice doesn't place a portal after it
         mouseMove.lock()
+    },
+    showEmptyDraft(type) {
+        const message = `<div class="choose-grid-module card-background" ${powerUps.hideStyle}>
+                <div class="card-text"><div class="grid-title">no available choices</div></div>
+            </div>`
+        const text = message + powerUps.buildColumns(0, type, true)
+        document.getElementById("choose-grid").innerHTML = text
+        powerUps.showDraft()
     },
     animatePowerUpGrab(color, count = 25) {
         if (!localSettings.isHideHUD) {
@@ -1151,10 +1162,13 @@ const powerUps = {
         }
         return text
     },
-    researchAndCancelText(type) {
+    researchAndCancelText(type, isEmptyDraft = false) {
         let text = `<div class='research-cancel'>`
         if (type === "constraint") {
             return
+        } else if (isEmptyDraft) {
+            text += `<span class='cancel-card' onclick='powerUps.endDraft("${type}")' style="width: 95px;float: right;">cancel</span>`
+            return text + "</div>"
         } else if (type === "entanglement") {
             text += `<span class='research-card entanglement flipX' style="width: 275px;" onclick='powerUps.endDraft("${type}",true)'><span style="letter-spacing: 6px;">entanglement</span></span>`
         } else if (tech.isJunkResearch && powerUps.research.currentRerollCount < 2) {
@@ -1188,7 +1202,7 @@ const powerUps = {
         }
         return text + "</div>"
     },
-    buildColumns(totalChoices, type) {
+    buildColumns(totalChoices, type, isEmptyDraft = false) {
         let width
         if (canvas.width < 1710) {
             width = "285px" //285px
@@ -1200,7 +1214,7 @@ const powerUps = {
 
         let text = ""
         document.getElementById("choose-grid").style.gridTemplateColumns = width
-        text += powerUps.researchAndCancelText(type)
+        text += powerUps.researchAndCancelText(type, isEmptyDraft)
         return text
     },
     hideStyle: `style="height:auto; border: none; background-color: transparent;"`,
@@ -1215,6 +1229,7 @@ const powerUps = {
     },
     techCard(choose, click, icon, iconGap = "&nbsp;") { //icon is html drawn before the tech name
         const t = tech.tech[choose]
+        if (!t || t.isDisabled) return ""
         const techCountText = t.count > 0 ? `(${t.count + 1}x)` : "";
         return powerUps.card(`${icon} ${iconGap} ${t.name} ${techCountText}`, t.descriptionFunction ? t.descriptionFunction() : t.description, click, t.isJunk ? `junk-${choose}` : "")
     },
@@ -1222,9 +1237,11 @@ const powerUps = {
         return powerUps.card(`<div class="circle-grid field"></div> &nbsp; ${m.fieldUpgrades[choose].name}`, m.fieldUpgrades[choose].descriptionFunction(), click)
     },
     gunText(choose, click) {
+        if (!b.guns[choose] || b.guns[choose].isDisabled) return ""
         return powerUps.card(`<div class="circle-grid-title gun"></div> &nbsp; ${b.guns[choose].name}`, b.guns[choose].descriptionFunction(), click)
     },
     fieldText(choose, click) {
+        if (!m.fieldUpgrades[choose] || m.fieldUpgrades[choose].isDisabled) return ""
         return powerUps.card(`<div class="circle-grid-title field"></div> &nbsp; ${m.fieldUpgrades[choose].name}`, m.fieldUpgrades[choose].descriptionFunction(), click)
     },
     techText(choose, click) {
@@ -1278,7 +1295,7 @@ const powerUps = {
         if (!tech.isExtraBotOption) return ""
         const botTech = []
         for (let i = 0, len = tech.tech.length; i < len; i++) {
-            if (tech.tech[i].isBotTech && tech.tech[i].count < tech.tech[i].maxCount && tech.tech[i].allowed() && !(isSkipRecentlyShown && tech.tech[i].isRecentlyShown)) botTech.push(i)
+            if (!tech.tech[i].isDisabled && tech.tech[i].isBotTech && tech.tech[i].count < tech.tech[i].maxCount && tech.tech[i].allowed() && !(isSkipRecentlyShown && tech.tech[i].isRecentlyShown)) botTech.push(i)
         }
         return botTech.length ? powerUps.botTechText(botTech[Math.floor(Math.random() * botTech.length)]) : ""
     },
@@ -1298,10 +1315,15 @@ const powerUps = {
             if (m.alive) {
                 let options = [];
                 for (let i = 0; i < b.guns.length; i++) {
-                    if (!b.guns[i].have) options.push(i);
+                    if (!b.guns[i].have && !b.guns[i].isDisabled) options.push(i);
                 }
                 const ammoTech = tech.tech.findIndex(t => t.name === "ammo")
-                const isAmmoChoice = options.length === 0 && ammoTech > -1 && tech.tech[ammoTech].count < tech.tech[ammoTech].maxCount //you have every gun, so offer the ammo tech instead
+                const isAmmoChoice = options.length === 0 && ammoTech > -1 && !tech.tech[ammoTech].isDisabled && tech.tech[ammoTech].count < tech.tech[ammoTech].maxCount //you have every gun, so offer the ammo tech instead
+                if (options.length === 0 && !isAmmoChoice) {
+                    for (let i = 0; i < b.guns.length; i++) b.guns[i].isRecentlyShown = false
+                    powerUps.showEmptyDraft("gun")
+                    return
+                }
                 if (options.length > 0 || isAmmoChoice || !tech.isSuperDeterminism) {
                     let totalChoices = 2 + tech.extraChoices + (tech.isInPilot ? 6 : 3) * (m.fieldMode === 8) - level.fewerChoices
                     if (tech.isCancelTech && tech.cancelTechCount === 1) {
@@ -1352,7 +1374,13 @@ const powerUps = {
             if (m.alive) {
                 let options = [];
                 for (let i = 1; i < m.fieldUpgrades.length; i++) { //skip field emitter
-                    if (i !== m.fieldMode && !m.fieldUpgrades[i].isLoreField) options.push(i);
+                    if (i !== m.fieldMode && !m.fieldUpgrades[i].isLoreField && !m.fieldUpgrades[i].isDisabled) options.push(i);
+                }
+                const extraBotChoice = powerUps.extraBotChoice()
+                if (options.length === 0 && !extraBotChoice) {
+                    for (let i = 0; i < m.fieldUpgrades.length; i++) m.fieldUpgrades[i].isRecentlyShown = false
+                    powerUps.showEmptyDraft("field")
+                    return
                 }
                 let totalChoices = 2 + tech.extraChoices + (tech.isInPilot ? 6 : 3) * (m.fieldMode === 8) - level.fewerChoices
                 if (tech.isCancelTech && tech.cancelTechCount === 1) {
@@ -1360,7 +1388,7 @@ const powerUps = {
                     tech.cancelTechCount++
                 }
                 if (tech.isDeterminism) totalChoices = 1
-                totalChoices = Math.max(1, Math.min(totalChoices, options.length))
+                totalChoices = Math.min(Math.max(1, totalChoices), options.length)
                 function removeOption(index) {
                     for (let i = 0; i < options.length; i++) {
                         if (options[i] === index) {
@@ -1376,7 +1404,7 @@ const powerUps = {
                 }
                 for (let i = 0; i < m.fieldUpgrades.length; i++) m.fieldUpgrades[i].isRecentlyShown = false //reset recently shown back to zero
 
-                if (options.length > 0 || tech.isExtraBotOption) {
+                if (options.length > 0 || extraBotChoice) {
                     let text = powerUps.buildColumns(totalChoices, "field")
                     for (let i = 0; i < totalChoices; i++) {
                         const choose = options[Math.floor(Math.seededRandom(0, options.length))] //pick an element from the array of options
@@ -1385,7 +1413,7 @@ const powerUps = {
                         removeOption(choose)
                         if (options.length < 1) break
                     }
-                    text += powerUps.extraBotChoice()
+                    text += extraBotChoice
                     document.getElementById("choose-grid").innerHTML = text
                     powerUps.showDraft();
                 }
@@ -1404,7 +1432,7 @@ const powerUps = {
                 let options = []; //generate all options
                 optionLengthNoDuplicates = 0
                 for (let i = 0; i < tech.tech.length; i++) {
-                    if (tech.tech[i].count < tech.tech[i].maxCount && tech.tech[i].allowed() && !tech.tech[i].isBanished) {
+                    if (!tech.tech[i].isDisabled && tech.tech[i].count < tech.tech[i].maxCount && tech.tech[i].allowed() && !tech.tech[i].isBanished) {
                         if (tech.tech[i].frequency > 0) optionLengthNoDuplicates++
                         for (let j = 0, len = tech.tech[i].frequency; j < len; j++) options.push(i);
                     }
@@ -1451,6 +1479,10 @@ const powerUps = {
                     }
                 }
                 for (let i = 0; i < tech.tech.length; i++) tech.tech[i].isRecentlyShown = false //reset recently shown back to zero
+                if (options.length === 0) {
+                    powerUps.showEmptyDraft("tech")
+                    return
+                }
                 if (options.length > 0) {
                     let text = powerUps.buildColumns(totalChoices, "tech")
 
@@ -1458,21 +1490,21 @@ const powerUps = {
                     if (tech.isRetain) { //coherence shows every tech you've been offered
                         for (let i = 0, len = powerUps.retainList.length; i < len; i++) {
                             for (let j = 0, len = tech.tech.length; j < len; j++) {
-                                if (tech.tech[j].name === powerUps.retainList[i] && tech.tech[j].count < tech.tech[j].maxCount && tech.tech[j].allowed() && tech.tech[j].frequency > 0) {
+                                if (!tech.tech[j].isDisabled && tech.tech[j].name === powerUps.retainList[i] && tech.tech[j].count < tech.tech[j].maxCount && tech.tech[j].allowed() && tech.tech[j].frequency > 0) {
                                     addTech(j)
                                     removeOption(j) //don't show it twice
                                 }
                             }
                         }
                     }
+                    const junkOptions = []
+                    for (let i = 0; i < tech.tech.length; i++) {
+                        if (tech.tech[i].isJunk && !tech.tech[i].isDisabled) junkOptions.push(i)
+                    }
                     for (let i = 0; i < totalChoices; i++) {
                         if (options.length < 1) break
-                        if (Math.random() < tech.junkChance + level.junkAdded) { // choose is set to a random JUNK tech
-                            const list = []
-                            for (let i = 0; i < tech.tech.length; i++) {
-                                if (tech.tech[i].isJunk) list.push(i)
-                            }
-                            chooseJUNK = list[Math.floor(Math.random() * list.length)]
+                        if (junkOptions.length && Math.random() < tech.junkChance + level.junkAdded) { // choose is set to a random JUNK tech
+                            chooseJUNK = junkOptions[Math.floor(Math.random() * junkOptions.length)]
                             if (tech.isRetain && !powerUps.retainList.includes(tech.tech[chooseJUNK].name)) powerUps.retainList.push(tech.tech[chooseJUNK].name)
                             text += powerUps.junkTechText(chooseJUNK, `powerUps.choose('tech',${chooseJUNK})`)
                         } else {
@@ -1493,22 +1525,18 @@ const powerUps = {
                     text += powerUps.extraBotChoice(true)
                     if (tech.isMassProduction) {
                         for (let i = 0, len = tech.tech.length; i < len; i++) {
-                            if (tech.tech[i].isMassProduction) text += powerUps.card(tech.tech[i].name, tech.tech[i].descriptionFunction ? tech.tech[i].descriptionFunction() : tech.tech[i].description, `powerUps.choose('tech',${i})`)
+                            if (tech.tech[i].isMassProduction && !tech.tech[i].isDisabled) text += powerUps.card(tech.tech[i].name, tech.tech[i].descriptionFunction ? tech.tech[i].descriptionFunction() : tech.tech[i].description, `powerUps.choose('tech',${i})`)
                         }
                     }
                     if (tech.isExtraGunField) {
-                        if (Math.random() > 0.5 && b.inventory.length < b.guns.length) {
-                            let gunOptions = [];
-                            for (let i = 0; i < b.guns.length; i++) {
-                                if (!b.guns[i].have) gunOptions.push(i);
-                            }
+                            const availableGuns = b.guns.map((gun, i) => !gun.isDisabled && !gun.have ? i : -1).filter(i => i !== -1)
+                            const availableFields = m.fieldUpgrades.map((field, i) => !field.isDisabled && i !== m.fieldMode && !field.isLoreField ? i : -1).filter(i => i !== -1)
+                            if (Math.random() > 0.5 && availableGuns.length) {
+                                const gunOptions = availableGuns
                             const pick = gunOptions[Math.floor(Math.seededRandom(0, gunOptions.length))] //pick an element from the array of options
                             text += powerUps.gunText(pick, `powerUps.choose('gun',${pick})`)
-                        } else {
-                            let fieldOptions = [];
-                            for (let i = 1; i < m.fieldUpgrades.length; i++) { //skip field emitter
-                                if (i !== m.fieldMode && !m.fieldUpgrades[i].isLoreField) fieldOptions.push(i);
-                            }
+                        } else if (availableFields.length) {
+                            const fieldOptions = availableFields
                             const pick = fieldOptions[Math.floor(Math.seededRandom(0, fieldOptions.length))] //pick an element from the array of options
                             text += powerUps.fieldText(pick, `powerUps.choose('field',${pick})`)
                         }
@@ -1567,7 +1595,7 @@ const powerUps = {
                     for (let j = 0; j < b.inventory.length; j++) {
                         if (b.inventory[j] === choose) alreadyHasGun = true
                     }
-                    if (!alreadyHasGun && b.guns[choose]) text += powerUps.gunText(choose, `powerUps.choose('gun',${choose})`)
+                    if (!alreadyHasGun && b.guns[choose] && !b.guns[choose].isDisabled) text += powerUps.gunText(choose, `powerUps.choose('gun',${choose})`)
                 }
                 for (let i = 0; i < localSettings.entanglement.techIndexes.length; i++) { //add tech
                     let found = false;
@@ -1579,7 +1607,7 @@ const powerUps = {
                             break;
                         }
                     }
-                    if (found && tech.tech[choose]) {
+                    if (found && tech.tech[choose] && !tech.tech[choose].isDisabled) {
                         if (tech.tech[choose].count + 1 > tech.tech[choose].maxCount || !tech.tech[choose].allowed()) {
                             text += powerUps.incoherentTechText()
                         } else {

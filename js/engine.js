@@ -198,6 +198,8 @@ function collisionChecks(event) {
     for (let i = 0, j = pairs.length; i != j; i++) {
         //mob + (player,bullet,body) collisions
         const pair = pairs[i]
+        if (pair.bodyA.endOnCollision) pair.bodyA.endCycle = simulation.cycle - 1
+        if (pair.bodyB.endOnCollision) pair.bodyB.endCycle = simulation.cycle - 1
         const bodyA = pair.bodyA.parent && pair.bodyA.parent.mob ? pair.bodyA.parent : pair.bodyA
         const bodyB = pair.bodyB.parent && pair.bodyB.parent.mob ? pair.bodyB.parent : pair.bodyB
         let who

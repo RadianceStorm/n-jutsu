@@ -701,7 +701,8 @@ ${b.guns[b.inventory[i]].descriptionFunction()}</div> </div>`
         if (isExperiment) {
             build.populateGrid()
             // build.updateExperimentText()
-            document.getElementById("tech-0").scrollIntoView(); //scroll to the first tech after sorting
+            const firstTech = document.querySelector("#experiment-grid .experiment-grid-module[id^='tech-']")
+            if (firstTech) firstTech.scrollIntoView(); //scroll to the first available tech after sorting
         } else {
             build.generatePauseRight() //makes the right side of the pause menu with the tech            
         }
@@ -803,6 +804,9 @@ ${b.guns[b.inventory[i]].descriptionFunction()}</div> </div>`
                 ${tech.tech[i].descriptionFunction ? tech.tech[i].descriptionFunction() : tech.tech[i].description}</div>`
     },
     choosePowerUp(index, type, isAllowed = false) {
+        if (type === "gun" && (!b.guns[index] || b.guns[index].isDisabled)) return
+        if (type === "field" && (!m.fieldUpgrades[index] || m.fieldUpgrades[index].isDisabled)) return
+        if (type === "tech" && (!tech.tech[index] || tech.tech[index].isDisabled)) return
         if (type === "gun") {
             let isDeselect = false
             for (let i = 0, len = b.inventory.length; i < len; i++) { //look for selection in inventory
@@ -832,7 +836,8 @@ ${b.guns[b.inventory[i]].descriptionFunction()}</div> </div>`
                 document.getElementById("field-" + m.fieldMode).classList.remove("build-field-selected");
                 m.setField(index)
                 document.getElementById("field-" + index).classList.add("build-field-selected");
-                document.getElementById("tech-150").focus();
+                const firstTech = document.querySelector("#experiment-grid .experiment-grid-module[id^='tech-']")
+                if (firstTech) firstTech.focus();
             } else if (m.fieldMode === 4) {
                 const i = 4 //update experiment text
                 m.fieldUpgrades[4].nextMode()
@@ -859,6 +864,7 @@ ${b.guns[b.inventory[i]].descriptionFunction()}</div> </div>`
     },
     updateExperimentText(isAllowed = false) {
         for (let i = 0, len = tech.tech.length; i < len; i++) {
+            if (tech.tech[i].isDisabled) continue
             const techID = document.getElementById("tech-" + i)
             if ((!tech.tech[i].isJunk || localSettings.isJunkExperiment) && !tech.tech[i].isLore) {
                 if (tech.tech[i].allowed() || isAllowed || tech.tech[i].count > 0) {
@@ -954,22 +960,24 @@ ${b.guns[b.inventory[i]].descriptionFunction()}</div> </div>`
         const hideStyle = `style="height:auto; border: none; background-color: transparent;"`
         for (let i = 0, len = m.fieldUpgrades.length; i < len; i++) {
             if (m.fieldUpgrades[i].isLoreField && localSettings.loreCount === 0) continue //lore fields show up after testing is unlocked
-            text += `<div id="field-${i}" class="experiment-grid-module card-background ${m.fieldMode === i ? " build-field-selected" : ""}" onclick="build.choosePowerUp(${i},'field');" ${hideStyle} >
+            const isFieldDisabled = m.fieldUpgrades[i].isDisabled
+            text += `<div id="field-${i}" class="experiment-grid-module card-background ${m.fieldMode === i ? " build-field-selected" : ""} ${isFieldDisabled ? "experiment-grid-disabled" : ""}" ${isFieldDisabled ? "" : `onclick="build.choosePowerUp(${i},'field');"`} ${hideStyle} >
                             <div class="card-text">
                                 <div class="grid-title"><div class="circle-grid-title field" onclick="speechHandler.speech('${m.fieldUpgrades[i].name}')"></div> &nbsp; ${build.nameLink(m.fieldUpgrades[i].name)}</div>
                                 ${m.fieldUpgrades[i].descriptionFunction()}</div> </div>`
         }
         for (let i = 0, len = b.guns.length; i < len; i++) {
-            text += `<div id="gun-${i}" class="experiment-grid-module card-background ${b.guns[i].have ? " build-gun-selected" : ""}" onclick="build.choosePowerUp(${i},'gun')" ${hideStyle} >
+            const isGunDisabled = b.guns[i].isDisabled
+            text += `<div id="gun-${i}" class="experiment-grid-module card-background ${isGunDisabled ? "experiment-grid-disabled" : ""} ${b.guns[i].have ? " build-gun-selected" : ""}" ${isGunDisabled ? "" : `onclick="build.choosePowerUp(${i},'gun')"`} ${hideStyle} >
                         <div class="card-text">
                             <div class="grid-title"><div class="circle-grid-title gun" onclick="speechHandler.speech('${b.guns[i].name}')"></div> &nbsp; ${build.nameLink(b.guns[i].name)}</div>
                             ${b.guns[i].descriptionFunction()}</div> </div>`
         }
         for (let i = 0, len = tech.tech.length; i < len; i++) {
-            if ((!tech.tech[i].isJunk || localSettings.isJunkExperiment) && !tech.tech[i].isLore) {
-                if ((tech.tech[i].allowed() || tech.tech[i].count > 0) && (!tech.tech[i].isInstant || localSettings.isJunkExperiment)) { // || tech.tech[i].name === "+1 cardinality") { //|| tech.tech[i].name === "leveraged investment"
+            if (!tech.tech[i].isDisabled && (!tech.tech[i].isJunk || localSettings.isJunkExperiment) && !tech.tech[i].isLore) {
+                if ((tech.tech[i].allowed() || tech.tech[i].count > 0) && (!tech.tech[i].isInstant || localSettings.isJunkExperiment)) {
                     text += `<div id="tech-${i}" class="experiment-grid-module card-background ${tech.tech[i].count ? "build-tech-selected" : ""}" onclick="build.choosePowerUp(${i},'tech')" ${hideStyle}>`
-                } else { //disabled
+                } else {
                     text += `<div id="tech-${i}" class="experiment-grid-module card-background experiment-grid-disabled" ${hideStyle}>`
                 }
                 if (tech.tech[i].isFieldTech) {
