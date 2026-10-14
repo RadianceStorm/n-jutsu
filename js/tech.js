@@ -16367,5 +16367,3 @@ const tech = {
     // isCasimirRandom: null,
     // mergedList: null,
 }
-tech.tech = [];
-tech.totalCount = 0;
