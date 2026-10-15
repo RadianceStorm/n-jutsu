@@ -156,6 +156,7 @@ const b = {
     meleeComboMultiplier: 1,
     meleeLastHitCycle: -1000,
     meleeLastAttackCycle: -1000,
+    meleePunchIndex: 0,
     resetMeleeCombo() {
         b.meleeComboMultiplier = 1;
         b.meleeLastHitCycle = -1000;
@@ -582,59 +583,74 @@ const b = {
         }
         ctx.fillStyle = color.bullet;
         ctx.fill();
+        b.bulletDrawMeleeTrails(false)
+    },
+    bulletDrawMeleeTrails(behindPlayer) {
         for (let i = 0, len = bullet.length; i < len; i++) {
             const strike = bullet[i]
-            if (!strike.isMeleeStrike) continue
-            if (simulation.cycle >= strike.meleeVisibleCycle) {
-                const fade = strike.meleePhysicsRemoved ? Math.max(0, 1 - (simulation.cycle - strike.meleeFadeStartCycle) / 5) : 1
-                b.drawMeleeTail(strike.meleeTrail, fade, strike.meleeRadius)
-            }
+            if (!strike.isMeleeStrike || strike.meleeTrailBehindPlayer !== behindPlayer) continue
+            const fade = strike.meleePhysicsRemoved ? Math.max(0, 1 - (simulation.cycle - strike.meleeFadeStartCycle) / 5) : 1
+            b.drawMeleeTail(strike.meleeTrail, fade, strike.meleeRadius, player.position)
         }
     },
-    drawMeleeTail(points, alpha, radius) {
+    drawMeleeTail(points, alpha, radius, offset) {
         if (points.length < 2 || alpha <= 0) return
+        const worldPoints = []
+        for (let i = 0; i < points.length; i++) {
+            const point = { x: points[i].x + offset.x, y: points[i].y + offset.y }
+            if (!worldPoints.length || Vector.magnitude(Vector.sub(point, worldPoints[worldPoints.length - 1])) > 0.001) worldPoints.push(point)
+        }
+        if (worldPoints.length < 2) return
         const left = []
         const right = []
-        for (let i = 0; i < points.length; i++) {
-            const before = points[Math.max(0, i - 1)]
-            const after = points[Math.min(points.length - 1, i + 1)]
+        for (let i = 0; i < worldPoints.length; i++) {
+            const before = worldPoints[Math.max(0, i - 1)]
+            const after = worldPoints[Math.min(worldPoints.length - 1, i + 1)]
             const tangent = Vector.normalise(Vector.sub(after, before))
             const normal = { x: -tangent.y, y: tangent.x }
-            const progress = i / (points.length - 1)
-            const width = 1 + radius * 0.72 * progress
-            left.push({ x: points[i].x + normal.x * width, y: points[i].y + normal.y * width })
-            right.push({ x: points[i].x - normal.x * width, y: points[i].y - normal.y * width })
+            const progress = i / (worldPoints.length - 1)
+            // Trail width grows from 5% to 72% of the fist radius.
+            const width = radius * (0.05 + 0.67 * progress)
+            left.push({ x: worldPoints[i].x + normal.x * width, y: worldPoints[i].y + normal.y * width })
+            right.push({ x: worldPoints[i].x - normal.x * width, y: worldPoints[i].y - normal.y * width })
         }
         ctx.save()
         ctx.globalAlpha = alpha
         ctx.beginPath()
         ctx.moveTo(left[0].x, left[0].y)
         for (let i = 1; i < left.length; i++) ctx.lineTo(left[i].x, left[i].y)
+        const end = worldPoints[worldPoints.length - 1]
+        const endTangent = Vector.normalise(Vector.sub(worldPoints[worldPoints.length - 1], worldPoints[worldPoints.length - 2]))
+        const endAngle = Math.atan2(endTangent.y, endTangent.x)
+        // Outer fist cap is 72% of the projectile radius; the white inset below is 64%.
+        ctx.arc(end.x, end.y, radius * 0.72, endAngle + Math.PI / 2, endAngle - Math.PI / 2, true)
         for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y)
         ctx.closePath()
         ctx.fillStyle = "#000"
         ctx.fill()
         ctx.beginPath()
         for (let i = 0; i < left.length; i++) {
-            const before = points[Math.max(0, i - 1)]
-            const after = points[Math.min(points.length - 1, i + 1)]
+            const before = worldPoints[Math.max(0, i - 1)]
+            const after = worldPoints[Math.min(worldPoints.length - 1, i + 1)]
             const tangent = Vector.normalise(Vector.sub(after, before))
             const normal = { x: -tangent.y, y: tangent.x }
-            const progress = i / (points.length - 1)
-            const width = Math.max(0, 1 + radius * 0.72 * progress - 1.5)
-            const x = points[i].x + normal.x * width
-            const y = points[i].y + normal.y * width
+            const progress = i / (worldPoints.length - 1)
+            // Keep the white fill inset from the black outline by 8% of fist radius.
+            const width = Math.max(0, radius * (0.05 + 0.67 * progress - 0.08))
+            const x = worldPoints[i].x + normal.x * width
+            const y = worldPoints[i].y + normal.y * width
             if (i === 0) ctx.moveTo(x, y)
             else ctx.lineTo(x, y)
         }
+        ctx.arc(end.x, end.y, radius * 0.64, endAngle + Math.PI / 2, endAngle - Math.PI / 2, true)
         for (let i = right.length - 1; i >= 0; i--) {
-            const before = points[Math.max(0, i - 1)]
-            const after = points[Math.min(points.length - 1, i + 1)]
+            const before = worldPoints[Math.max(0, i - 1)]
+            const after = worldPoints[Math.min(worldPoints.length - 1, i + 1)]
             const tangent = Vector.normalise(Vector.sub(after, before))
             const normal = { x: -tangent.y, y: tangent.x }
-            const progress = i / (points.length - 1)
-            const width = Math.max(0, 1 + radius * 0.72 * progress - 1.5)
-            ctx.lineTo(points[i].x - normal.x * width, points[i].y - normal.y * width)
+            const progress = i / (worldPoints.length - 1)
+            const width = Math.max(0, radius * (0.05 + 0.67 * progress - 0.08))
+            ctx.lineTo(worldPoints[i].x - normal.x * width, worldPoints[i].y - normal.y * width)
         }
         ctx.closePath()
         ctx.fillStyle = "#fff"
@@ -4715,18 +4731,34 @@ const b = {
         m.energy -= energyCost
         const me = bullet.length
         const speedMultiplier = isFinisher ? 2 : 1
+        // Base punch speed; combo finishers move twice as fast.
         const speed = 32 * 2 / 3
-        const range = speed * 11 * speedMultiplier
         const direction = { x: Math.cos(angle), y: Math.sin(angle) }
+        const playerPosition = { x: player.position.x, y: player.position.y }
         const playerVelocity = { x: player.velocity.x, y: player.velocity.y }
-        const destination = Vector.add(where.aimOrigin, Vector.mult(direction, range))
-        const originOffsetY = where.y - where.aimOrigin.y
-        const arcHeight = Math.max(Math.abs(originOffsetY), range * 0.12)
-        const control = {
-            x: (where.x + destination.x) / 2,
-            y: (where.y + destination.y) / 2 + (originOffsetY <= 0 ? 1 : -1) * arcHeight
+        const facing = direction.x < 0 ? -1 : 1
+        const meleeTrailBehindPlayer = b.meleePunchIndex++ % 2 === 0
+        // Fist radius
+        const meleeRadius = (isFinisher ? 21 : 14) * 4 / 3
+        const origin = Vector.sub(where, playerPosition)
+        const relativeAimOrigin = Vector.sub(where.aimOrigin, playerPosition)
+        // Preserve forward reach while covering the distance from the rear spawn to the aim point.
+        const destinationRange = speed * 11 * speedMultiplier * 0.85 // 15% less forward reach, including finishers.
+        const behindStartDistance = Math.max(0, Vector.dot(Vector.sub(relativeAimOrigin, origin), direction))
+        const range = destinationRange + behindStartDistance
+        const destination = Vector.add(relativeAimOrigin, Vector.mult(direction, destinationRange))
+        const meleeControlPoint = (start, end, aimDirection) => {
+            const perpendicular = { x: -aimDirection.y, y: aimDirection.x }
+            const offsetFromAimLine = Vector.dot(start, perpendicular)
+            const arcHeight = Math.max(Math.abs(offsetFromAimLine), Vector.magnitude(Vector.sub(end, start)) * 0.12)
+            const arcDirection = Math.abs(offsetFromAimLine) < 1e-9 ? 0 : offsetFromAimLine < 0 ? 1 : -1
+            return Vector.add(
+                Vector.mult(Vector.add(start, end), 0.5),
+                Vector.mult(perpendicular, arcDirection * arcHeight)
+            )
         }
-        bullet[me] = Bodies.polygon(where.x, where.y, 12, isFinisher ? 21 : 14, {
+        const control = meleeControlPoint(origin, destination, direction)
+        bullet[me] = Bodies.polygon(where.x, where.y, 12, meleeRadius, {
             angle,
             friction: 0.5,
             frictionAir: 0,
@@ -4735,36 +4767,52 @@ const b = {
             endCycle: Infinity,
             collisionFilter: {
                 category: cat.bullet,
-                mask: cat.map | cat.body | cat.mob | cat.mobBullet | cat.mobShield
+                mask: 0
             },
             endOnCollision: !isFinisher,
             minDmgSpeed: 0,
             density: 0.004,
             isMeleeStrike: true,
             isMeleeFinisher: isFinisher,
-            meleeOrigin: { x: where.x, y: where.y },
-            meleeOriginOffsetY: originOffsetY,
+            meleeOrigin: origin,
             meleeControl: control,
             meleeDestination: destination,
             meleeRange: range,
-            meleeRadius: isFinisher ? 21 : 14,
+            meleeRadius,
             meleeDistance: 0,
             meleeLastPosition: { x: where.x, y: where.y },
             meleePlayerVelocity: playerVelocity,
-            meleePlayerPosition: { x: player.position.x, y: player.position.y },
+            meleePlayerPosition: playerPosition,
+            meleeLocalPosition: origin,
+            meleeAimOffset: angle - m.angle,
+            meleePreviousAimAngle: angle,
+            meleeHeadHeightOffset: Vector.dot(origin, { x: -direction.y, y: direction.x }),
+            meleeLaunchRadius: Vector.magnitude(origin),
+            meleeDestinationRange: destinationRange,
             meleeProgress: 0,
-            meleeVisibleCycle: simulation.cycle + 3,
-            meleeSpeed: speed * 1.5 * speedMultiplier,
+            // Launch velocity multiplier and later acceleration are both applied in do().
+            meleeSpeed: speed * 2 * speedMultiplier,
             meleeDirection: direction,
+            meleeAimDirection: direction,
+            meleeFacing: facing,
+            meleeTrailBehindPlayer,
+            meleeCollisionEnabled: false,
             meleeHitRegistered: false,
-            meleeTrail: [],
+            // Number of recent fist positions used to shape the tapered trail.
+            meleeTrail: [{ x: origin.x, y: origin.y }],
             meleeHomingRadius: 240,
             onMeleeHit(target) {
                 if (this.meleeHitRegistered) return
                 this.meleeHitRegistered = true
-                this.endCycle = simulation.cycle + 1
+                this.endCycle = simulation.cycle + 2
+                this.meleeLocalPosition = Vector.sub(this.position, player.position)
+                this.meleeLastPosition = { x: this.position.x, y: this.position.y }
+                this.meleePlayerPosition = { x: player.position.x, y: player.position.y }
+                // Keep the newest 12 points to bound trail drawing and preserve its recent curve.
+                this.meleeTrail.push({ x: this.meleeLocalPosition.x, y: this.meleeLocalPosition.y })
+                if (this.meleeTrail.length > 12) this.meleeTrail.shift()
                 m.energy = Math.min(m.maxEnergy, m.energy + 0.03)
-                simulation.shakeCamera(1.2, 3)
+                simulation.shakeCamera(1.5, 3)
                 if (target && target !== player && target !== playerBody && target !== playerHead) {
                     const targetBody = target.parent && target.parent !== target && target.parent.classType === "body" ? target.parent : target
                     if (targetBody.classType === "body" && !targetBody.isStatic && Number.isFinite(targetBody.mass)) {
@@ -4794,92 +4842,100 @@ const b = {
             },
             onEnd() { },
             do() {
-                const playerDelta = Vector.sub(player.position, this.meleePlayerPosition)
-                if (this.meleeHitRegistered) {
-                    const correction = this.meleePhysicsRemoved ? playerDelta : Vector.sub(playerDelta, this.meleePlayerVelocity)
-                    if (!this.meleePhysicsRemoved) Matter.Body.setPosition(this, Vector.add(this.position, correction))
-                    for (let i = 0; i < this.meleeTrail.length; i++) {
-                        this.meleeTrail[i].x += correction.x
-                        this.meleeTrail[i].y += correction.y
-                    }
-                    this.meleeLastPosition = Vector.add(this.position, this.meleePhysicsRemoved ? { x: 0, y: 0 } : correction)
-                    if (!this.meleePhysicsRemoved && simulation.cycle >= this.meleeVisibleCycle) {
-                        this.meleeTrail.push({ x: this.meleeLastPosition.x, y: this.meleeLastPosition.y })
-                        if (this.meleeTrail.length > 12) this.meleeTrail.shift()
-                    }
+                if (this.meleeHitRegistered || this.meleeRangeEnded) {
+                    const position = Vector.add(player.position, this.meleeLocalPosition)
+                    if (!this.meleePhysicsRemoved) Matter.Body.setPosition(this, position)
+                    this.meleeLastPosition = position
                     this.meleePlayerPosition = { x: player.position.x, y: player.position.y }
                     this.meleePlayerVelocity = { x: player.velocity.x, y: player.velocity.y }
                     return
                 }
-                const previousPlayerVelocity = this.meleePlayerVelocity
-                const correction = Vector.sub(playerDelta, previousPlayerVelocity)
-                const rawStep = Vector.sub(this.position, this.meleeLastPosition)
-                const step = Vector.sub(rawStep, previousPlayerVelocity)
-                if (correction.x || correction.y) {
-                    Matter.Body.setPosition(this, Vector.add(this.position, correction))
-                    this.meleeOrigin = Vector.add(this.meleeOrigin, correction)
-                    this.meleeControl = Vector.add(this.meleeControl, correction)
-                    this.meleeDestination = Vector.add(this.meleeDestination, correction)
+                // Steer the active punch with the current aim while keeping a fixed rear offset.
+                const aimAngle = m.angle + this.meleeAimOffset
+                const aimDirection = { x: Math.cos(aimAngle), y: Math.sin(aimAngle) }
+                const aimDelta = Math.atan2(
+                    Math.sin(aimAngle - this.meleePreviousAimAngle),
+                    Math.cos(aimAngle - this.meleePreviousAimAngle)
+                )
+                if (aimDelta !== 0) {
+                    const rotateWithFacing = point => ({
+                        x: point.x * Math.cos(aimDelta) - point.y * Math.sin(aimDelta),
+                        y: point.x * Math.sin(aimDelta) + point.y * Math.cos(aimDelta)
+                    })
+                    this.meleeLocalPosition = rotateWithFacing(this.meleeLocalPosition)
                     for (let i = 0; i < this.meleeTrail.length; i++) {
-                        this.meleeTrail[i].x += correction.x
-                        this.meleeTrail[i].y += correction.y
+                        this.meleeTrail[i] = rotateWithFacing(this.meleeTrail[i])
                     }
                 }
-                const stepDistance = Vector.magnitude(step)
-                this.meleeDistance += stepDistance
-                if (this.meleeDistance >= this.meleeRange) {
-                    const remainingDistance = this.meleeRange - (this.meleeDistance - stepDistance)
-                    const fraction = stepDistance > 0 ? remainingDistance / stepDistance : 0
-                    const endpoint = Vector.add(Vector.add(this.meleeLastPosition, correction), Vector.mult(step, fraction))
-                    Matter.Body.setPosition(this, endpoint)
-                    this.meleeDistance = this.meleeRange
-                    this.meleeLastPosition = endpoint
-                    this.meleeProgress = 1
-                    if (simulation.cycle >= this.meleeVisibleCycle) {
-                        this.meleeTrail.push({ x: endpoint.x, y: endpoint.y })
-                        if (this.meleeTrail.length > 12) this.meleeTrail.shift()
-                    }
-                    this.endCycle = simulation.cycle
-                    Matter.Body.setVelocity(this, { x: 0, y: 0 })
-                    this.meleePlayerPosition = { x: player.position.x, y: player.position.y }
-                    this.meleePlayerVelocity = { x: player.velocity.x, y: player.velocity.y }
-                    return
-                }
-                this.meleeLastPosition = { x: this.position.x, y: this.position.y }
+                this.meleePreviousAimAngle = aimAngle
+                const launch = b.meleeLaunchPoint(aimAngle, this.meleeHeadHeightOffset, this.meleeLaunchRadius)
+                this.meleeAimDirection = aimDirection
+                this.meleeOrigin = Vector.sub(launch, player.position)
+                const aimOrigin = Vector.sub(launch.aimOrigin, player.position)
+                this.meleeDestination = Vector.add(aimOrigin, Vector.mult(aimDirection, this.meleeDestinationRange))
+                const rearTravelDistance = Math.max(0, Vector.dot(Vector.sub(aimOrigin, this.meleeOrigin), aimDirection))
+                this.meleeRange = this.meleeDestinationRange + rearTravelDistance
                 this.meleeProgress = this.meleeDistance / this.meleeRange
                 const target = b.closestMeleeTarget(this.position, this.meleeHomingRadius)
                 if (target) {
-                    const targetOffset = Vector.sub(target.position, this.meleeDestination)
+                    const targetOffset = Vector.sub(Vector.sub(target.position, player.position), this.meleeDestination)
                     const targetDistance = Vector.magnitude(targetOffset)
                     if (targetDistance > 0) this.meleeDestination = Vector.add(this.meleeDestination, Vector.mult(targetOffset, Math.min(4, targetDistance * 0.04) / targetDistance))
                 }
                 const t = this.meleeProgress
-                const arcHeight = Math.max(Math.abs(this.meleeOriginOffsetY), Vector.magnitude(Vector.sub(this.meleeDestination, this.meleeOrigin)) * 0.12)
-                this.meleeControl = {
-                    x: (this.meleeOrigin.x + this.meleeDestination.x) / 2,
-                    y: (this.meleeOrigin.y + this.meleeDestination.y) / 2 + (this.meleeOriginOffsetY <= 0 ? 1 : -1) * arcHeight
-                }
+                this.meleeControl = meleeControlPoint(this.meleeOrigin, this.meleeDestination, aimDirection)
                 const tangent = Vector.add(
                     Vector.mult(Vector.sub(this.meleeControl, this.meleeOrigin), 2 * (1 - t)),
                     Vector.mult(Vector.sub(this.meleeDestination, this.meleeControl), 2 * t)
                 )
                 this.meleeDirection = Vector.normalise(tangent)
-                const strikeVelocity = Vector.mult(this.meleeDirection, this.meleeSpeed * (0.5 + 1.5 * t))
+                const strikeSpeed = this.meleeSpeed * (0.5 + 1.5 * t)
+                const stepDistance = Math.min(strikeSpeed, this.meleeRange - this.meleeDistance)
+                this.meleeLocalPosition = Vector.add(this.meleeLocalPosition, Vector.mult(this.meleeDirection, stepDistance))
+                this.meleeDistance += stepDistance
+                this.meleeProgress = this.meleeDistance / this.meleeRange
+                const position = Vector.add(player.position, this.meleeLocalPosition)
+                Matter.Body.setPosition(this, position)
+                Matter.Body.setAngle(this, aimAngle)
+                this.meleeLastPosition = position
+                this.meleeTrail.push({ x: this.meleeLocalPosition.x, y: this.meleeLocalPosition.y })
+                if (this.meleeTrail.length > 12) this.meleeTrail.shift()
+                const headBounds = playerHead.bounds
+                const headCorners = [
+                    { x: headBounds.min.x, y: headBounds.min.y },
+                    { x: headBounds.min.x, y: headBounds.max.y },
+                    { x: headBounds.max.x, y: headBounds.min.y },
+                    { x: headBounds.max.x, y: headBounds.max.y }
+                ]
+                let headFrontExtent = 0
+                for (const corner of headCorners) {
+                    headFrontExtent = Math.max(headFrontExtent, Vector.dot(Vector.sub(corner, player.position), this.meleeAimDirection))
+                }
+                const punchDistanceFromPlayer = Vector.dot(this.meleeLocalPosition, this.meleeAimDirection)
+                const passedFace = punchDistanceFromPlayer > headFrontExtent
+                this.meleeCollisionEnabled = passedFace
+                this.collisionFilter.mask = passedFace ? cat.map | cat.body | cat.mob | cat.mobBullet | cat.mobShield : 0
+                if (this.meleeDistance >= this.meleeRange) {
+                    this.endCycle = simulation.cycle
+                    this.meleeRangeEnded = true
+                    this.collisionFilter.mask = 0
+                    Matter.Body.setVelocity(this, { x: 0, y: 0 })
+                    this.meleePlayerPosition = { x: player.position.x, y: player.position.y }
+                    this.meleePlayerVelocity = { x: player.velocity.x, y: player.velocity.y }
+                    return
+                }
+                const strikeVelocity = Vector.mult(this.meleeDirection, strikeSpeed)
                 Matter.Body.setVelocity(this, {
                     x: strikeVelocity.x + player.velocity.x,
                     y: strikeVelocity.y + player.velocity.y
                 })
-                if (simulation.cycle >= this.meleeVisibleCycle) {
-                    this.meleeTrail.push({ x: this.position.x, y: this.position.y })
-                    if (this.meleeTrail.length > 12) this.meleeTrail.shift()
-                }
                 this.meleePlayerPosition = { x: player.position.x, y: player.position.y }
                 this.meleePlayerVelocity = { x: player.velocity.x, y: player.velocity.y }
             }
         })
         Matter.Body.setVelocity(bullet[me], {
-            x: playerVelocity.x + speed * 1.5 * speedMultiplier * 0.5 * direction.x,
-            y: playerVelocity.y + speed * 1.5 * speedMultiplier * 0.5 * direction.y
+            x: playerVelocity.x + speed * 2 * speedMultiplier * 0.5 * direction.x,
+            y: playerVelocity.y + speed * 2 * speedMultiplier * 0.5 * direction.y
         })
         Composite.add(engine.world, bullet[me])
         return bullet[me]
@@ -4901,16 +4957,43 @@ const b = {
         }
         return closest
     },
-    meleeLaunchPoint(angle) {
-        const facing = Math.cos(angle) < 0 ? -1 : 1
+    meleeLaunchPoint(angle, headHeightOffset, launchRadius) {
         const head = playerHead.bounds
+        const direction = { x: Math.cos(angle), y: Math.sin(angle) }
+        // Aim point for the arc's forward endpoint.
         const aimOrigin = {
             x: m.pos.x + 30 * Math.cos(angle),
             y: m.pos.y + 30 * Math.sin(angle)
         }
+        // Use the farthest head corner to get a constant rear distance for every aim angle.
+        const headCorners = [
+            { x: head.min.x, y: head.min.y },
+            { x: head.min.x, y: head.max.y },
+            { x: head.max.x, y: head.min.y },
+            { x: head.max.x, y: head.max.y }
+        ]
+        let headRadius = 0
+        for (const corner of headCorners) {
+            const relativeCorner = Vector.sub(corner, player.position)
+            headRadius = Math.max(headRadius, Vector.magnitude(relativeCorner))
+        }
+        // Keep the launch point at a fixed radius from the player for every aim direction.
+        const fixedLaunchRadius = launchRadius === undefined ? (headRadius + 18) * 2 : launchRadius // Half the previous rear launch distance.
+        const perpendicular = { x: -direction.y, y: direction.x }
+        // Reuse a punch's sampled offset while it follows the aim; new punches sample head height.
+        const randomHeadHeight = headHeightOffset === undefined
+            ? Math.random() * (head.max.y - head.min.y + 24) - (head.max.y - head.min.y + 24) / 2
+            : headHeightOffset
+        const clampedHeadHeight = Math.max(-fixedLaunchRadius, Math.min(fixedLaunchRadius, randomHeadHeight))
+        const launchOffset = Math.sqrt(fixedLaunchRadius ** 2 - clampedHeadHeight ** 2)
+        const launch = Vector.add(
+            Vector.sub(player.position, Vector.mult(direction, launchOffset)),
+            Vector.mult(perpendicular, clampedHeadHeight)
+        )
+        // Randomize origin height across the head plus a 12-unit margin above and below.
         return {
-            x: facing < 0 ? head.min.x : head.max.x,
-            y: head.min.y - 12 + Math.random() * (head.max.y - head.min.y + 24),
+            x: launch.x,
+            y: launch.y,
             aimOrigin
         }
     },
@@ -9365,7 +9448,8 @@ const b = {
                     return
                 }
                 b.meleeLastAttackCycle = simulation.cycle
-                m.fireCDcycle = m.cycle + Math.max(1, Math.floor(9 * b.fireCDscale / (tech.isMeleeCombo ? b.meleeComboMultiplier : 1)))
+                m.fireCDcycle = m.cycle + Math.max(1, Math.floor(15 * b.fireCDscale / (tech.isMeleeCombo ? b.meleeComboMultiplier : 1)))
+                //                                               ^ This number is the base firerate
             },
             do() {
                 if (tech.isMeleeCombo && b.meleeLastHitCycle + 120 < simulation.cycle) b.resetMeleeCombo()

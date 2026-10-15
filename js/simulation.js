@@ -24,6 +24,7 @@ const simulation = {
         // simulation.draw.cons();
         simulation.draw.body();
         if (!m.isTimeDilated) mobs.loop();
+        b.bulletDrawMeleeTrails(true);
         m.draw();
         m.hold();
         level.customTopLayer();
