@@ -211,9 +211,14 @@ const b = {
     },
     fire() { },
     fireNone() { }, //guns are off, like for the portal field
+    canMeleeFireDuringField() {
+        const gun = b.guns[b.activeGun]
+        const field = m.fieldUpgrades[m.fieldMode]
+        return gun && gun.name === "melee" && field && field.name === "shrine"
+    },
     fireNormal() {
         if (b.inventory.length && (b.activeGun !== null && b.activeGun !== undefined)) {
-            if (input.fire && m.fireCDcycle < m.cycle && (!input.field || m.fieldFire)) {
+            if (input.fire && m.fireCDcycle < m.cycle && (!input.field || m.fieldFire || b.canMeleeFireDuringField())) {
                 if (b.guns[b.activeGun].ammo > 0) {
                     b.fireWithAmmo()
                 } else {
@@ -237,7 +242,7 @@ const b = {
     },
     fireFloat() { //added  && player.speed < 0.5 && m.onGround
         if (b.inventory.length && (b.activeGun !== null && b.activeGun !== undefined)) {
-            if (input.fire && (!input.field || m.fieldFire)) {
+            if (input.fire && (!input.field || m.fieldFire || b.canMeleeFireDuringField())) {
                 if (m.fireCDcycle < m.cycle) {
                     if (b.guns[b.activeGun].ammo > 0) {
                         b.fireWithAmmo()
@@ -590,10 +595,10 @@ const b = {
             const strike = bullet[i]
             if (!strike.isMeleeStrike || strike.meleeTrailBehindPlayer !== behindPlayer) continue
             const fade = strike.meleePhysicsRemoved ? Math.max(0, 1 - (simulation.cycle - strike.meleeFadeStartCycle) / 5) : 1
-            b.drawMeleeTail(strike.meleeTrail, fade, strike.meleeRadius, player.position)
+            b.drawMeleeTail(strike.meleeTrail, fade, strike.meleeRadius, player.position, strike.isCleaveAttack ? "#ff1744" : "#fff")
         }
     },
-    drawMeleeTail(points, alpha, radius, offset) {
+    drawMeleeTail(points, alpha, radius, offset, fillColor = "#fff") {
         if (points.length < 2 || alpha <= 0) return
         const worldPoints = []
         for (let i = 0; i < points.length; i++) {
@@ -615,6 +620,65 @@ const b = {
             right.push({ x: worldPoints[i].x - normal.x * width, y: worldPoints[i].y - normal.y * width })
         }
         ctx.save()
+        if (fillColor !== "#fff") {
+            const trailOutline = [
+                ...left,
+                ...right.slice().reverse()
+            ]
+            ctx.save()
+            ctx.globalAlpha = alpha * 0.52
+            ctx.shadowColor = fillColor
+            ctx.shadowBlur = Math.max(8, radius * 0.55)
+            ctx.beginPath()
+            ctx.moveTo(trailOutline[0].x, trailOutline[0].y)
+            for (let i = 1; i < trailOutline.length; i++) ctx.lineTo(trailOutline[i].x, trailOutline[i].y)
+            ctx.closePath()
+            ctx.fillStyle = fillColor
+            ctx.fill()
+            ctx.restore()
+
+            ctx.save()
+            ctx.globalAlpha = alpha * 0.9
+            ctx.strokeStyle = "#090006"
+            ctx.lineWidth = Math.max(2, radius * 0.1)
+            ctx.lineCap = "round"
+            for (let edge = 0; edge < trailOutline.length; edge++) {
+                const start = trailOutline[edge]
+                const end = trailOutline[(edge + 1) % trailOutline.length]
+                const dx = end.x - start.x
+                const dy = end.y - start.y
+                const edgeLength = Math.hypot(dx, dy) || 1
+                const normal = { x: -dy / edgeLength, y: dx / edgeLength }
+                ctx.beginPath()
+                ctx.moveTo(start.x, start.y)
+                for (let step = 1; step <= 3; step++) {
+                    const t = step / 4
+                    const agitation = Math.sin(simulation.cycle * 0.55 + edge * 2.1 + step * 4.7) * radius * 0.16
+                    ctx.lineTo(start.x + dx * t + normal.x * agitation, start.y + dy * t + normal.y * agitation)
+                }
+                ctx.lineTo(end.x, end.y)
+                ctx.stroke()
+            }
+            ctx.restore()
+
+            if (Math.random() < Math.min(0.8, 0.15 + Vector.magnitude(Vector.sub(worldPoints[worldPoints.length - 1], worldPoints[0])) / 500)) {
+                const pointIndex = Math.floor(Math.random() * worldPoints.length)
+                const point = worldPoints[pointIndex]
+                const tangent = Vector.normalise(Vector.sub(worldPoints[Math.min(worldPoints.length - 1, pointIndex + 1)], worldPoints[Math.max(0, pointIndex - 1)]))
+                const flameLength = radius * (0.25 + Math.random() * 0.65)
+                ctx.save()
+                ctx.globalAlpha = alpha * (0.45 + Math.random() * 0.45)
+                ctx.translate(point.x, point.y)
+                ctx.rotate(Math.atan2(tangent.y, tangent.x) + (Math.random() - 0.5) * 1.4)
+                ctx.fillStyle = "#ff283f"
+                ctx.beginPath()
+                ctx.moveTo(-flameLength * 0.4, -radius * 0.08)
+                ctx.quadraticCurveTo(flameLength * 0.15, -radius * 0.28, flameLength, 0)
+                ctx.quadraticCurveTo(flameLength * 0.15, radius * 0.28, -flameLength * 0.4, radius * 0.08)
+                ctx.fill()
+                ctx.restore()
+            }
+        }
         ctx.globalAlpha = alpha
         ctx.beginPath()
         ctx.moveTo(left[0].x, left[0].y)
@@ -653,7 +717,11 @@ const b = {
             ctx.lineTo(worldPoints[i].x - normal.x * width, worldPoints[i].y - normal.y * width)
         }
         ctx.closePath()
-        ctx.fillStyle = "#fff"
+        if (fillColor !== "#fff") {
+            ctx.shadowColor = fillColor
+            ctx.shadowBlur = 10
+        }
+        ctx.fillStyle = fillColor
         ctx.fill()
         ctx.restore()
     },
@@ -4726,11 +4794,25 @@ const b = {
         });
     },
     meleeStrike(where, angle, isFinisher = false) {
-        const energyCost = 0.02
+        const energyCost = tech.meleeEnergyCost
         if (m.energy < energyCost) return null
         m.energy -= energyCost
         const me = bullet.length
         const speedMultiplier = isFinisher ? 2 : 1
+        const shrineField = m.fieldUpgrades[m.fieldMode]
+        const isCleaveAttack = tech.isShrineCleave &&
+            shrineField.name === "shrine" &&
+            shrineField.chargeStarted &&
+            shrineField.chargeCycles > 0
+        if (isCleaveAttack) {
+            const chargeRatio = Math.min(1, shrineField.chargeCycles / shrineField.maxChargeCycles)
+            shrineField.startFlare(chargeRatio)
+            shrineField.consumedUntilRelease = true
+            shrineField.chargeCycles = 0
+            shrineField.chargeStarted = false
+            shrineField.pickupTarget = null
+            shrineField.flareCycles = 0
+        }
         // Base punch speed; combo finishers move twice as fast.
         const speed = 32 * 2 / 3
         const direction = { x: Math.cos(angle), y: Math.sin(angle) }
@@ -4762,7 +4844,7 @@ const b = {
             angle,
             friction: 0.5,
             frictionAir: 0,
-            dmg: isFinisher ? 12 : 3,
+            dmg: (isFinisher ? 32 : 8) * tech.meleeDamageMultiplier, // melee damage bookmark
             classType: "bullet",
             endCycle: Infinity,
             collisionFilter: {
@@ -4774,6 +4856,8 @@ const b = {
             density: 0.004,
             isMeleeStrike: true,
             isMeleeFinisher: isFinisher,
+            isCleaveAttack,
+            meleeBaseDamage: (isFinisher ? 10 : 2) * tech.meleeDamageMultiplier,
             meleeOrigin: origin,
             meleeControl: control,
             meleeDestination: destination,
@@ -4790,7 +4874,7 @@ const b = {
             meleeLaunchRadius: Vector.magnitude(origin),
             meleeDestinationRange: destinationRange,
             meleeProgress: 0,
-            // Launch velocity multiplier and later acceleration are both applied in do().
+            // Launch velocity multiplier and later acceleration are both applied in do()
             meleeSpeed: speed * 2 * speedMultiplier,
             meleeDirection: direction,
             meleeAimDirection: direction,
@@ -4798,21 +4882,58 @@ const b = {
             meleeTrailBehindPlayer,
             meleeCollisionEnabled: false,
             meleeHitRegistered: false,
-            // Number of recent fist positions used to shape the tapered trail.
+            meleeContinueThrough: false,
+            meleeHitTargets: new Set(),
+            // Number of recent fist positions used to shape the tapered trail
             meleeTrail: [{ x: origin.x, y: origin.y }],
-            meleeHomingRadius: 240,
-            onMeleeHit(target) {
-                if (this.meleeHitRegistered) return
+            meleeHomingRadius: 480,
+            meleeHomingStrength: 0.12,
+            meleeHomingStep: 12,
+            meleeEnergyPaid: tech.meleeEnergyCost,
+            onMeleeHit(target, contactPoint) {
+                if (target && this.meleeHitTargets.has(target)) return
+                if (target) this.meleeHitTargets.add(target)
+                const continueThrough = Boolean(target && (
+                    target.isMobBullet ||
+                    (target.mob && (
+                        !target.alive ||
+                        target.isInvulnerable ||
+                        target.isShielded ||
+                        target.damageReduction <= 0 ||
+                        simulation.cycle < target.statusImmuneUntilCycle
+                    ))
+                ))
                 this.meleeHitRegistered = true
-                this.endCycle = simulation.cycle + 2
+                this.meleeContinueThrough = continueThrough
+                if (this.isCleaveAttack && target && target.mob && (
+                    target.isInvulnerable ||
+                    target.isShielded ||
+                    target.damageReduction <= 0 ||
+                    simulation.cycle < target.statusImmuneUntilCycle
+                )) {
+                    m.energy = Math.min(m.maxEnergy, m.energy + this.meleeEnergyPaid)
+                }
+                if (this.isCleaveAttack) {
+                    const field = m.fieldUpgrades[m.fieldMode]
+                    if (field.name === "shrine") {
+                        field.consumedUntilRelease = true
+                        field.chargeCycles = 0
+                        field.chargeStarted = false
+                        field.pickupTarget = null
+                        field.flareCycles = 0
+                    }
+                }
+                if (!continueThrough) this.endCycle = simulation.cycle + 2
                 this.meleeLocalPosition = Vector.sub(this.position, player.position)
                 this.meleeLastPosition = { x: this.position.x, y: this.position.y }
                 this.meleePlayerPosition = { x: player.position.x, y: player.position.y }
-                // Keep the newest 12 points to bound trail drawing and preserve its recent curve.
+                // Keep the newest 12 points to bound trail drawing and preserve its recent curve
                 this.meleeTrail.push({ x: this.meleeLocalPosition.x, y: this.meleeLocalPosition.y })
                 if (this.meleeTrail.length > 12) this.meleeTrail.shift()
-                m.energy = Math.min(m.maxEnergy, m.energy + 0.03)
-                simulation.shakeCamera(1.5, 3)
+                if (target && (target.mob || target.isMobBullet)) {
+                    m.energy = Math.min(m.maxEnergy, m.energy + 0.03)
+                }
+                simulation.shakeCamera(1.5, 4)
                 if (target && target !== player && target !== playerBody && target !== playerHead) {
                     const targetBody = target.parent && target.parent !== target && target.parent.classType === "body" ? target.parent : target
                     if (targetBody.classType === "body" && !targetBody.isStatic && Number.isFinite(targetBody.mass)) {
@@ -4822,18 +4943,146 @@ const b = {
                             y: targetBody.velocity.y + this.meleeDirection.y * knockback
                         })
                     }
+                    if (target.mob && target.isInvulnerable && Number.isFinite(target.mass)) {
+                        const knockback = Math.min(72, 72 / Math.sqrt(Math.max(1, target.mass)))
+                        Matter.Body.setVelocity(target, {
+                            x: target.velocity.x + this.meleeDirection.x * knockback,
+                            y: target.velocity.y + this.meleeDirection.y * knockback
+                        })
+                    }
+                    if (this.isCleaveAttack && target.mob) {
+                        if (target.alive) {
+                            if (this.meleeCleaveCutMarker && target.shrineSlashCut === this.meleeCleaveCutMarker) {
+                                target.shrineSlashCut = null
+                            }
+                        } else {
+                            const point = contactPoint || this.position
+                            const directionToCenter = Vector.normalise(Vector.sub(target.position, point))
+                            const direction = Vector.magnitudeSquared(directionToCenter) > 0
+                                ? directionToCenter
+                                : this.meleeDirection
+                            const field = m.fieldUpgrades[m.fieldMode]
+                            if (field.name === "shrine" && field.drawCutMark) {
+                                field.drawCutMark(target, point, direction, false, 16, 2)
+                            }
+                            if (
+                                tech.isShrineButcher &&
+                                field.name === "shrine"
+                                && Math.random() < 0.25
+                            ) {
+                                powerUps.spawn(target.position.x, target.position.y, "heal")
+                            }
+                        }
+                        if (this.isCleaveAttack && targetBody.classType === "body" && body.includes(targetBody) &&
+                            !targetBody.isStatic && !targetBody.isImmutable && !targetBody.isNotHoldable) {
+                            const point = contactPoint || this.position
+                            const towardCenter = Vector.normalise(Vector.sub(targetBody.position, point))
+                            const cutDirection = Vector.magnitudeSquared(towardCenter) > 0 ? towardCenter : this.meleeDirection
+                            const field = m.fieldUpgrades[m.fieldMode]
+                            const pieces = mobs.makeCutBodies(targetBody, point, cutDirection, {})
+                            const cutPieces = pieces && pieces.filter(piece => piece.mass >= 0.5)
+                            if (cutPieces && cutPieces.length) {
+                                const blockIndex = body.indexOf(targetBody)
+                                if (blockIndex !== -1) body.splice(blockIndex, 1)
+                                Matter.Composite.remove(engine.world, targetBody)
+                                for (const piece of cutPieces) {
+                                    body.push(piece)
+                                    Composite.add(engine.world, piece)
+                                }
+                                if (field.name === "shrine" && field.drawCutMark) {
+                                    field.drawCutMark(targetBody, point, cutDirection, false, 16, 2)
+                                }
+                            }
+                        }
+                    }
                     if (target.mob || targetBody.isStatic || !Number.isFinite(targetBody.mass) || targetBody.mass >= 1) {
                         Matter.Body.setVelocity(player, { x: 0, y: 0 })
                     }
                 }
             },
             onMeleePhysicsImpact() {
+                if (this.meleeContinueThrough) return
                 this.collisionFilter.mask = 0
                 Matter.Body.setVelocity(this, { x: 0, y: 0 })
             },
-            beforeDmg(who) {
+            beforeDmg(who, contactPoint) {
                 if (tech.isPressurePoint && Math.random() < 0.25) {
                     mobs.statusStun(who, 1 + Math.floor(60 * Math.random()))
+                }
+                const isDamageBlocked = simulation.cycle < who.statusImmuneUntilCycle ||
+                    (
+                        tech.aperiodicTiling > 0 &&
+                        !who.hasBlockedFirstHit &&
+                        (who.isDropPowerUp || who.isBoss) &&
+                        !who.shield &&
+                        !who.isMobBullet &&
+                        !who.isInvulnerable &&
+                        who.damageReduction > 0
+                    )
+                if (this.isCleaveAttack && who.mob && !isDamageBlocked && !who.isInvulnerable && !who.isShielded && who.damageReduction > 0) {
+                    const dismantleDamagePerEnergy = 31.5 / (shrineField.maxChargeCycles * shrineField.chargeEnergyPerCycle)
+                    let targetHealthDamage = who.health
+                    if (Number.isFinite(who.nextHealthThreshold) && who.nextHealthThreshold > 0) {
+                        targetHealthDamage = Math.min(targetHealthDamage, Math.max(0, who.health - who.nextHealthThreshold + 0.02))
+                    }
+                    const cleaveDamageMultiplier = 3 * 1.2
+                    const energyBeforeCleave = m.energy
+                    const damageScaleForEnergy = energySpent => {
+                        m.energy = energyBeforeCleave - energySpent
+                        try {
+                            let scale = tech.damageAdjustments() *
+                                (who.tier && level.levelsCleared < 14
+                                    ? spawn.mobDmgTakenByTier[who.tier]
+                                    : spawn.mobDmgTakenByLevelsCleared()) /
+                                Math.sqrt(who.mass) *
+                                who.damageReduction
+                            if (who.isDropPowerUp && who.health === 1 && tech.isMobFullHealthCloak) scale *= 2.11
+                            else if (who.isDropPowerUp && tech.isMobLowHealth && who.health < 0.25) scale *= 3
+                            if (tech.isFarAwayDmg && who.isOffScreen()) scale *= 1 + 0.7 * tech.isFarAwayDmg
+                            if (tech.isCrit && who.isStunned) scale *= 4
+                            if (tech.isBarrierBreaker && who.shield) scale *= 2
+                            return scale
+                        } finally {
+                            m.energy = energyBeforeCleave
+                        }
+                    }
+                    const damageAtEnergyCost = energySpent => {
+                        const damageScale = damageScaleForEnergy(energySpent)
+                        return (
+                            (this.meleeBaseDamage + energySpent * dismantleDamagePerEnergy) *
+                                cleaveDamageMultiplier +
+                            0.1
+                        ) * damageScale
+                    }
+                    const baseHealthDamage = damageAtEnergyCost(0)
+                    let extraEnergy = 0
+                    if (baseHealthDamage < targetHealthDamage && energyBeforeCleave > 0) {
+                        if (damageAtEnergyCost(energyBeforeCleave) < targetHealthDamage) {
+                            extraEnergy = energyBeforeCleave
+                        } else {
+                            let minEnergy = 0
+                            let maxEnergy = energyBeforeCleave
+                            for (let i = 0; i < 24; i++) {
+                                const testEnergy = (minEnergy + maxEnergy) / 2
+                                if (damageAtEnergyCost(testEnergy) >= targetHealthDamage) {
+                                    maxEnergy = testEnergy
+                                } else {
+                                    minEnergy = testEnergy
+                                }
+                            }
+                            extraEnergy = maxEnergy
+                        }
+                        m.energy -= extraEnergy
+                    }
+                    this.dmg = (this.meleeBaseDamage + extraEnergy * dismantleDamagePerEnergy) * cleaveDamageMultiplier + 0.1
+                    const point = contactPoint || this.position
+                    const directionToCenter = Vector.normalise(Vector.sub(who.position, point))
+                    this.meleeCleaveCutMarker = {
+                        point,
+                        direction: Vector.magnitudeSquared(directionToCenter) > 0 ? directionToCenter : this.meleeDirection,
+                        token: {}
+                    }
+                    who.shrineSlashCut = this.meleeCleaveCutMarker
                 }
                 if (!this.isMeleeFinisher && tech.isMeleeCombo && !who.shield && !who.isShielded && !who.isInvulnerable && who.damageReduction > 0) {
                     b.meleeComboMultiplier = Math.min(3, b.meleeComboMultiplier * 1.1)
@@ -4842,7 +5091,7 @@ const b = {
             },
             onEnd() { },
             do() {
-                if (this.meleeHitRegistered || this.meleeRangeEnded) {
+                if ((this.meleeHitRegistered && !this.meleeContinueThrough) || this.meleeRangeEnded) {
                     const position = Vector.add(player.position, this.meleeLocalPosition)
                     if (!this.meleePhysicsRemoved) Matter.Body.setPosition(this, position)
                     this.meleeLastPosition = position
@@ -4880,7 +5129,7 @@ const b = {
                 if (target) {
                     const targetOffset = Vector.sub(Vector.sub(target.position, player.position), this.meleeDestination)
                     const targetDistance = Vector.magnitude(targetOffset)
-                    if (targetDistance > 0) this.meleeDestination = Vector.add(this.meleeDestination, Vector.mult(targetOffset, Math.min(4, targetDistance * 0.04) / targetDistance))
+                    if (targetDistance > 0) this.meleeDestination = Vector.add(this.meleeDestination, Vector.mult(targetOffset, Math.min(this.meleeHomingStep, targetDistance * this.meleeHomingStrength) / targetDistance))
                 }
                 const t = this.meleeProgress
                 this.meleeControl = meleeControlPoint(this.meleeOrigin, this.meleeDestination, aimDirection)
@@ -4940,20 +5189,33 @@ const b = {
         Composite.add(engine.world, bullet[me])
         return bullet[me]
     },
+    setMeleeCooldown(cycles = 60) {
+        tech.meleeCooldownUntil = Math.max(tech.meleeCooldownUntil, simulation.cycle + cycles)
+        m.fireCDcycle = Math.max(m.fireCDcycle, m.cycle + cycles)
+    },
     closestMeleeTarget(position, range) {
-        let closest = null
         let closestDistance = range
-        const checkTarget = target => {
-            if (!target || !target.position || target === player || target === playerBody || target === playerHead || target.isInvulnerable || target.isBadTarget || target.alive === false) return
+        let closestPriority = Infinity
+        let closest = null
+        const checkTarget = (target, priority) => {
+            if (!target || !target.position || target === player || target === playerBody || target === playerHead || target.isBadTarget || target.alive === false) return
             const distance = Vector.magnitude(Vector.sub(target.position, position))
-            if (distance < closestDistance) {
+            if (distance < range && (priority < closestPriority || (priority === closestPriority && distance < closestDistance))) {
                 closest = target
                 closestDistance = distance
+                closestPriority = priority
             }
         }
-        for (let i = 0; i < mob.length; i++) checkTarget(mob[i])
+        for (let i = 0; i < mob.length; i++) {
+            const target = mob[i]
+            if (target.isInvulnerable || target.damageReduction <= 0) {
+                checkTarget(target, 2)
+            } else {
+                checkTarget(target, 0)
+            }
+        }
         for (let i = 0; i < bullet.length; i++) {
-            if (bullet[i].isMobBullet) checkTarget(bullet[i])
+            if (bullet[i].isMobBullet) checkTarget(bullet[i], 1)
         }
         return closest
     },
@@ -9432,7 +9694,7 @@ const b = {
             name: "melee",
             isDisabled: false,
             descriptionFunction() {
-                return `throw <strong>punches</strong> using <strong class='energy' data-help='energy'>energy</strong><br>costs <strong>2 energy</strong> per attack and refunds <strong>3 energy</strong> on hit<br>uses <strong class='color-ammo'>0 ammo</strong>`
+                return `throw <strong>punches</strong> using <strong class='energy' data-help='energy'>energy</strong><br>refunds 1.5x <strong class='energy' data-help='energy'>energy</strong> on hit<br>uses <strong class='color-ammo'>0 ammo</strong>`
             },
             ammo: Infinity,
             ammoPack: Infinity,
@@ -9440,6 +9702,10 @@ const b = {
             have: false,
             wasFiring: false,
             fire() {
+                if (tech.meleeCooldownUntil > simulation.cycle) {
+                    m.fireCDcycle = tech.meleeCooldownUntil
+                    return
+                }
                 const angle = m.angle + (Math.random() - 0.5) * Math.PI / 18
                 const where = b.meleeLaunchPoint(angle)
                 const strike = b.meleeStrike(where, angle)
@@ -9448,20 +9714,22 @@ const b = {
                     return
                 }
                 b.meleeLastAttackCycle = simulation.cycle
-                m.fireCDcycle = m.cycle + Math.max(1, Math.floor(15 * b.fireCDscale / (tech.isMeleeCombo ? b.meleeComboMultiplier : 1)))
-                //                                               ^ This number is the base firerate
+                const attackCooldown = Math.max(1, Math.floor(15 * b.fireCDscale / (tech.isMeleeCombo ? b.meleeComboMultiplier : 1)))
+                m.fireCDcycle = m.cycle + attackCooldown
+                if (strike.isCleaveAttack) b.setMeleeCooldown(60)
             },
             do() {
                 if (tech.isMeleeCombo && b.meleeLastHitCycle + 120 < simulation.cycle) b.resetMeleeCombo()
                 if (input.fire) {
                     this.wasFiring = true
                 } else if (this.wasFiring) {
-                    if (tech.isMeleeComboFinisher && b.meleeComboMultiplier >= 2.5) {
+                    if (tech.meleeCooldownUntil <= simulation.cycle && tech.isMeleeComboFinisher && b.meleeComboMultiplier >= 2) {
                         const angle = m.angle
                         const where = b.meleeLaunchPoint(angle)
                         const strike = b.meleeStrike(where, angle, true)
                         if (strike) {
                             b.meleeLastAttackCycle = simulation.cycle
+                            b.setMeleeCooldown(60)
                         }
                     }
                     b.resetMeleeCombo()

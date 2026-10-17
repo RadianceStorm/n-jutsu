@@ -8,6 +8,13 @@ const tech = {
     isMeleeDefensiveStance: false,
     isMeleeCombo: false,
     isMeleeComboFinisher: false,
+    meleeDamageMultiplier: 1,
+    meleeEnergyCost: 0.02,
+    meleeCooldownUntil: 0,
+    isShrineMalevolentFeast: false,
+    isShrineCleave: false,
+    isShrineButcher: false,
+    mergedList: [],
     isBarrierBreaker: false,
     resetAllTech() {
         for (let i = 0, len = tech.tech.length; i < len; i++) {
@@ -22,7 +29,7 @@ const tech = {
             } else {
                 tech.tech[i].frequency = 1
             }
-            if (tech.tech[i].name === "heals" || tech.tech[i].name === "ammo" || tech.tech[i].name === "research") tech.tech[i].value = tech.tech[i].defaultValue
+            if (tech.tech[i].name === "heals" || tech.tech[i].name === "positive cursed residue" || tech.tech[i].name === "ammo" || tech.tech[i].name === "research") tech.tech[i].value = tech.tech[i].defaultValue
         }
         m.resetSkin();
         tech.aperiodicTiling = 0;
@@ -32,6 +39,7 @@ const tech = {
         powerUps.retainList = [] //used in coherence
         lore.techCount = 0;
         tech.duplication = 0;
+        tech.meleeCooldownUntil = 0;
         tech.fireRate = 1
         m.damageDone = 1
         m.damageReduction = 1
@@ -6019,7 +6027,8 @@ const tech = {
             // console.log(tech.mergedList, this.list, pick1)
         },
         remove() {
-            tech.mergedList = []
+            const mergedByLieGroup = ["coupling", "boost", "research", "ammo", "qubit"].filter(item => !this.list.includes(item))
+            tech.mergedList = tech.mergedList.filter(item => !mergedByLieGroup.includes(item))
             this.list = ["coupling", "boost", "research", "ammo", "qubit"]
         }
     },
@@ -16060,6 +16069,131 @@ const tech = {
         remove() {
             tech.isBarrierBreaker = false
         }
+    },
+    {
+        name: "cursed energy output",
+        isDisabled: false,
+        description: `<strong>melee</strong> costs +1 energy per swing and deals <strong>1.4×</strong> damage`,
+        isGunTech: true,
+        maxCount: 3,
+        count: 0,
+        frequency: 2,
+        frequencyDefault: 2,
+        allowed() {
+            return tech.haveGunCheck("melee")
+        },
+        requires: "melee",
+        effect() {
+            tech.meleeDamageMultiplier *= 1.4
+            tech.meleeEnergyCost += 0.01
+        },
+        remove() {
+            tech.meleeDamageMultiplier = 1
+            tech.meleeEnergyCost = 0.02
+        }
+    },
+    {
+        name: "malevolent feast",
+        isDisabled: false,
+        description: `mobs killed have a <strong>10%</strong> chance to drop a <strong>heal</strong> or <strong>max energy</strong> power up`,
+        isFieldTech: true,
+        maxCount: 1,
+        count: 0,
+        frequency: 2,
+        frequencyDefault: 2,
+        allowed() {
+            return m.fieldUpgrades[m.fieldMode].name === "shrine"
+        },
+        requires: "shrine",
+        effect() {
+            tech.isShrineMalevolentFeast = true
+        },
+        remove() {
+            tech.isShrineMalevolentFeast = false
+        }
+    },
+    {
+        name: "meticulous preparation",
+        isDisabled: false,
+        description: `merge <strong>heal</strong> and <strong>max energy</strong> power ups into one`,
+        isFieldTech: true,
+        maxCount: 1,
+        count: 0,
+        frequency: 2,
+        frequencyDefault: 2,
+        allowed() {
+            return m.fieldUpgrades[m.fieldMode].name === "shrine" && tech.isShrineMalevolentFeast
+        },
+        requires: "shrine, malevolent feast",
+        effect() {
+            tech.mergedList.push("heal")
+        },
+        remove() {
+            tech.mergedList = tech.mergedList.filter(name => name !== "heal")
+        }
+    },
+    {
+        name: "cleave",
+        isDisabled: false,
+        description: `use <strong>melee</strong> while charging <strong>dismantle</strong> to use <strong>cleave</strong><br>automatically adjusts strength to instantly <strong>kill</strong> enemies<br>using <strong class='color-energy' data-help='energy'>energy</strong>`,
+        isFieldTech: true,
+        maxCount: 1,
+        count: 0,
+        frequency: 1,
+        frequencyDefault: 1,
+        allowed() {
+            return m.fieldUpgrades[m.fieldMode].name === "shrine" && tech.haveGunCheck("melee")
+        },
+        requires: "shrine, melee",
+        effect() {
+            tech.isShrineCleave = true
+        },
+        remove() {
+            tech.isShrineCleave = false
+        }
+    },
+    {
+        name: "butcher",
+        isDisabled: false,
+        description: `mobs killed by <strong>cleave</strong> have a <strong>25%</strong> chance to drop ${powerUps.orb.heal(1)}`,
+        isFieldTech: true,
+        maxCount: 1,
+        count: 0,
+        frequency: 1,
+        frequencyDefault: 1,
+        allowed() {
+            return tech.isShrineCleave && m.fieldUpgrades[m.fieldMode].name === "shrine"
+        },
+        requires: "cleave",
+        effect() {
+            tech.isShrineButcher = true
+        },
+        remove() {
+            tech.isShrineButcher = false
+        }
+    },
+    {
+        name: "positive cursed residue",
+        isDisabled: false,
+        descriptionFunction() {
+            return `spawn ${this.value > 30 ? this.value + powerUps.orb.heal(1) : powerUps.orb.heal(this.value)}<br>next time increase amount spawned by +7${powerUps.orb.heal(1)}`
+        },
+        maxCount: 9,
+        count: 0,
+        frequency: 1,
+        frequencyDefault: 1,
+        isHealTech: true,
+        isInstant: true,
+        isMassProduction: true,
+        allowed() { return true },
+        requires: "",
+        value: 10,
+        defaultValue: 10,
+        effect() {
+            powerUps.spawnDelay("heal", this.value)
+            this.value += 7
+        },
+        remove() { }
     }
     ],
     //variables use for gun tech upgrades

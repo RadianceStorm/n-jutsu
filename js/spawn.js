@@ -7158,6 +7158,7 @@ const spawn = {
     laserBaby(x, y, tier, color = "#f00", radius = 23) {
         mobs.spawn(x, y, 3, radius, color);
         let me = mob[mob.length - 1];
+        me.isDropPowerUp = false;
         me.tier = tier
         me.vertices = Matter.Vertices.rotate(me.vertices, Math.PI, me.position); //make the pointy side of triangle the front
         me.accelMag = 0.00015 * simulation.accelScale;

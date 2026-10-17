@@ -3517,6 +3517,8 @@ const m = {
             m.fieldRegen = 0.0015 //9 energy per second grappling hook
         } else if (m.fieldMode === 11) {
             m.fieldRegen = 0.001334 //8 energy per second portal
+        } else if (m.fieldUpgrades[m.fieldMode] && m.fieldUpgrades[m.fieldMode].name === "shrine") {
+            m.fieldRegen = 0.0011 //6.6 energy per second for shrine
         } else {
             m.fieldRegen = 0.001 //6 energy per second
         }
@@ -7291,6 +7293,345 @@ const m = {
                 }
             }
         },
+        {
+            name: "shrine",
+            descriptionFunction() {
+                return `hold the field key for up to <strong>2 seconds</strong> to charge an invisible <strong>dismantle</strong> slash<br>release to cut through targets for up to <strong>36 damage</strong><br>spends up to <strong>0.6</strong> <strong class='energy' data-help='energy'>energy</strong> on release`
+            },
+            maxChargeCycles: 120,
+            chargeEnergyPerCycle: 0.005,
+            cooldownCycles: 30,
+            slashRange: 90000,
+            slashStep: 180,
+            chargeCycles: 0,
+            wasFieldHeld: false,
+            blockHeldDuringField: false,
+            cooldownUntil: 0,
+            chargeStarted: false,
+            consumedUntilRelease: false,
+            pickupTarget: null,
+            flareCycles: 0,
+            effect() {
+                this.chargeCycles = 0
+                this.wasFieldHeld = false
+                this.blockHeldDuringField = false
+                this.cooldownUntil = 0
+                this.chargeStarted = false
+                this.consumedUntilRelease = false
+                this.pickupTarget = null
+                this.flareCycles = 0
+                this.flareChargeRatio = 0
+                m.fieldMeterColor = "#a22"
+                m.fieldFire = false
+                const field = this
+                field.cursedEnergyEffects = [
+                    simulation.addCursedEnergy(playerBody, {
+                        color: "#e00024",
+                        intensity: 0.04,
+                        flameSize: 0.04,
+                        transparency: 0.18,
+                        borderTransparency: 0.8,
+                        deferDraw: true
+                    }),
+                    simulation.addCursedEnergy(playerHead, {
+                        color: "#e00024",
+                        intensity: 0.04,
+                        flameSize: 0.04,
+                        transparency: 0.18,
+                        borderTransparency: 0.8,
+                        deferDraw: true
+                    })
+                ]
+                field.startFlare = chargeRatio => {
+                    field.flareChargeRatio = Math.max(0.04, Math.min(1, chargeRatio))
+                    field.flareCycles = 8
+                }
+                field.drawCursedEnergy = () => {
+                    const charging = input.field && field.chargeStarted && !field.consumedUntilRelease
+                    const chargeRatio = charging
+                        ? Math.min(1, field.chargeCycles / field.maxChargeCycles)
+                        : field.flareCycles > 0
+                            ? field.flareChargeRatio
+                            : 0
+                    if (chargeRatio <= 0) return
+                    const flareScale = field.flareCycles > 0 && !charging
+                        ? 1 + 0.8 * (field.flareCycles / 8)
+                        : 1
+                    const effectScale = 0.04 + 0.96 * chargeRatio
+                    for (const effect of field.cursedEnergyEffects) {
+                        effect.setParameters({
+                            intensity: effectScale * flareScale,
+                            flameSize: effectScale * flareScale,
+                            transparency: Math.min(0.42, 0.08 + effectScale * 0.22),
+                            borderThicknessMultiplier: 0.5 + effectScale * flareScale,
+                            borderSpeedMultiplier: 0.7 + effectScale * 1.3
+                        })
+                        effect.draw()
+                    }
+                }
+                field.drawAimLine = () => {
+                    const direction = { x: Math.cos(m.angle), y: Math.sin(m.angle) }
+                    const start = {
+                        x: m.pos.x + 30 * direction.x,
+                        y: m.pos.y + 30 * direction.y
+                    }
+                    const end = {
+                        x: start.x + field.slashRange * direction.x,
+                        y: start.y + field.slashRange * direction.y
+                    }
+                    const mapHits = Matter.Query.ray(map, start, end, 10)
+                    let stopDistance = field.slashRange
+                    for (const hit of mapHits) {
+                        const supports = hit.supports && hit.supports.length ? hit.supports : [hit.body.position]
+                        const point = supports.reduce((sum, support) => ({
+                            x: sum.x + support.x / supports.length,
+                            y: sum.y + support.y / supports.length
+                        }), { x: 0, y: 0 })
+                        const distance = Vector.dot(Vector.sub(point, start), direction)
+                        if (distance >= 0 && distance < stopDistance) stopDistance = distance
+                    }
+                    if (stopDistance < field.slashRange) {
+                        end.x = start.x + stopDistance * direction.x
+                        end.y = start.y + stopDistance * direction.y
+                    }
+                    ctx.save()
+                    ctx.beginPath()
+                    ctx.moveTo(start.x, start.y)
+                    ctx.lineTo(end.x, end.y)
+                    ctx.strokeStyle = "#000"
+                    ctx.lineWidth = 1
+                    ctx.lineDashOffset = 30 * Math.random()
+                    ctx.setLineDash([20, 40])
+                    ctx.stroke()
+                    ctx.restore()
+                }
+                field.drawCutMark = (target, point, direction, isWall = false, duration = 8, intensity = 1) => {
+                    let min = -6
+                    let max = 10
+                    if (!isWall && target.vertices) {
+                        const intersections = []
+                        const normal = { x: -direction.y, y: direction.x }
+                        for (let i = 0; i < target.vertices.length; i++) {
+                            const start = target.vertices[i]
+                            const end = target.vertices[(i + 1) % target.vertices.length]
+                            const startDistance = Vector.dot(Vector.sub(start, point), normal)
+                            const endDistance = Vector.dot(Vector.sub(end, point), normal)
+                            if ((startDistance <= 0 && endDistance >= 0) || (startDistance >= 0 && endDistance <= 0)) {
+                                const denominator = startDistance - endDistance
+                                if (Math.abs(denominator) > 1e-9) {
+                                    const fraction = startDistance / denominator
+                                    const intersection = {
+                                        x: start.x + (end.x - start.x) * fraction,
+                                        y: start.y + (end.y - start.y) * fraction
+                                    }
+                                    intersections.push(Vector.dot(Vector.sub(intersection, point), direction))
+                                }
+                            }
+                        }
+                        if (intersections.length >= 2) {
+                            min = Math.min(...intersections) - 8
+                            max = Math.max(...intersections) + 12
+                        }
+                    }
+                    simulation.ephemera.push({
+                        frames: duration,
+                        duration,
+                        do() {
+                            const progress = this.frames / this.duration
+                            ctx.save()
+                            ctx.globalAlpha = progress
+                            ctx.beginPath()
+                            ctx.moveTo(point.x + direction.x * min, point.y + direction.y * min)
+                            ctx.lineTo(point.x + direction.x * max, point.y + direction.y * max)
+                            ctx.strokeStyle = "#fff"
+                            ctx.lineWidth = (isWall ? 7 : 8) * intensity * progress
+                            ctx.shadowColor = "#fff"
+                            ctx.shadowBlur = 16 * intensity * progress
+                            ctx.stroke()
+                            ctx.shadowBlur = 0
+                            ctx.strokeStyle = "#000"
+                            ctx.lineWidth = (isWall ? 3 : 4) * intensity * progress
+                            ctx.stroke()
+                            ctx.restore()
+                            if (--this.frames <= 0) simulation.removeEphemera(this)
+                        }
+                    })
+                }
+                field.releaseSlash = chargeCycles => {
+                    const energyCost = Math.min(m.energy, chargeCycles * field.chargeEnergyPerCycle)
+                    m.energy -= energyCost
+                    const paidChargeCycles = energyCost / field.chargeEnergyPerCycle
+                    const chargeRatio = Math.min(1, paidChargeCycles / field.maxChargeCycles)
+                    const damage = (1.5 + 10.5 * chargeRatio) * 3
+                    const direction = { x: Math.cos(m.angle), y: Math.sin(m.angle) }
+                    const start = {
+                        x: m.pos.x + 30 * direction.x,
+                        y: m.pos.y + 30 * direction.y
+                    }
+                    const range = field.slashRange
+                    const step = field.slashStep
+                    const hitMobs = new Set()
+                    const hitBlocks = new Set()
+                    const cutToken = {}
+                    simulation.ephemera.push({
+                        distance: 0,
+                        do() {
+                            const nextDistance = Math.min(range, this.distance + step)
+                            const from = {
+                                x: start.x + direction.x * this.distance,
+                                y: start.y + direction.y * this.distance
+                            }
+                            const to = {
+                                x: start.x + direction.x * nextDistance,
+                                y: start.y + direction.y * nextDistance
+                            }
+                            const targets = new Map()
+                            const addHits = (objects, type) => {
+                                for (const hit of Matter.Query.ray(objects, from, to, 10)) {
+                                    const target = hit.body
+                                    if (!target || hitBlocks.has(target) || target.shrineCutBy === cutToken) continue
+                                    const support = hit.supports && hit.supports.length
+                                        ? hit.supports.reduce((sum, point) => Vector.add(sum, point), { x: 0, y: 0 })
+                                        : target.position
+                                    const hitPoint = hit.supports && hit.supports.length
+                                        ? Vector.mult(support, 1 / hit.supports.length)
+                                        : support
+                                    const distance = Vector.dot(Vector.sub(hitPoint, from), direction)
+                                    const previous = targets.get(target)
+                                    if (!previous || distance < previous.distance) targets.set(target, { type, distance })
+                                }
+                            }
+                            addHits(map, "map")
+                            addHits(body, "body")
+                            addHits(mob, "mob")
+                            const orderedTargets = [...targets].sort((a, b) => a[1].distance - b[1].distance)
+                            let hitMap = false
+                            for (const [target, hit] of orderedTargets) {
+                                const type = hit.type
+                                if (type === "map") {
+                                    const distance = this.distance + hit.distance
+                                    const point = Vector.add(start, Vector.mult(direction, distance))
+                                    field.drawCutMark(target, point, direction, true)
+                                    hitMap = true
+                                    break
+                                }
+                                if (type === "mob") {
+                                    if (!target.alive || hitMobs.has(target)) continue
+                                    hitMobs.add(target)
+                                    const along = Math.max(0, Math.min(nextDistance, this.distance + hit.distance))
+                                    const point = Vector.add(start, Vector.mult(direction, along))
+                                    field.drawCutMark(target, point, direction)
+                                    target.damage(damage, false, target.position)
+                                    if (!target.alive) {
+                                        target.shrineSlashCut = {
+                                            point,
+                                            direction,
+                                            token: cutToken
+                                        }
+                                    }
+                                    continue
+                                }
+                                if (target.isStatic || target.isImmutable || target.isNotHoldable) continue
+                                hitBlocks.add(target)
+                                const along = Math.max(0, Math.min(nextDistance, this.distance + hit.distance))
+                                const point = Vector.add(start, Vector.mult(direction, along))
+                                field.drawCutMark(target, point, direction)
+                                const index = body.indexOf(target)
+                                if (index !== -1 && target.mass < 0.5) {
+                                    Matter.Composite.remove(engine.world, target)
+                                    body.splice(index, 1)
+                                } else {
+                                    const pieces = mobs.makeCutBodies(target, point, direction, cutToken)
+                                    if (pieces && index !== -1) {
+                                        Matter.Composite.remove(engine.world, target)
+                                        body.splice(index, 1)
+                                        for (const piece of pieces) {
+                                            if (piece.mass < 0.5) continue
+                                            body.push(piece)
+                                            Composite.add(engine.world, piece)
+                                            hitBlocks.add(piece)
+                                        }
+                                    }
+                                }
+                            }
+                            this.distance = nextDistance
+                            if (hitMap || this.distance >= range) simulation.removeEphemera(this)
+                        }
+                    })
+                }
+                m.hold = function () {
+                    const fieldPressed = input.field
+                    const holdingBlock = m.isHolding || !!m.holdingTarget
+                    let pickupTarget = null
+                    if (fieldPressed) {
+                        field.wasFieldHeld = true
+                        field.blockHeldDuringField = field.blockHeldDuringField || holdingBlock
+                        if (!field.blockHeldDuringField && !field.consumedUntilRelease) {
+                            m.grabPowerUp()
+                            const range = 80 + 70 * Math.max(1, player.scale) + 30
+                            let targetDistance = range
+                            for (const block of body) {
+                                if (block === m.holdingTarget || block.isNotHoldable || block.isInvulnerable || block.isImmutable) continue
+                                if (!Matter.Vertices.contains(block.vertices, simulation.mouseInGame)) continue
+                                const distance = Vector.magnitude(Vector.sub(block.position, m.pos))
+                                if (distance < targetDistance && !Matter.Query.rayAny(map, block.position, m.pos)) {
+                                    pickupTarget = block
+                                    targetDistance = distance
+                                }
+                            }
+                            field.pickupTarget = pickupTarget
+                            if (pickupTarget) {
+                                field.chargeStarted = false
+                                field.chargeCycles = 0
+                            } else {
+                                if (!field.chargeStarted) field.chargeStarted = m.cycle >= field.cooldownUntil
+                                if (
+                                    field.chargeStarted &&
+                                    field.chargeCycles < field.maxChargeCycles &&
+                                    m.energy >= (field.chargeCycles + 1) * field.chargeEnergyPerCycle
+                                ) {
+                                    field.chargeCycles++
+                                }
+                            }
+                        } else {
+                            field.pickupTarget = null
+                            field.chargeStarted = false
+                            field.chargeCycles = 0
+                        }
+                        m.fieldCDcycle = m.cycle + 1
+                    }
+                    if (!fieldPressed && field.wasFieldHeld) {
+                        if (!field.blockHeldDuringField && field.pickupTarget && body.includes(field.pickupTarget)) {
+                            if (m.isHolding) m.drop()
+                            m.holdingTarget = field.pickupTarget
+                            m.pickUp()
+                        } else if (!field.blockHeldDuringField && !holdingBlock && !field.pickupTarget && field.chargeStarted && field.chargeCycles > 0) {
+                            field.releaseSlash(field.chargeCycles)
+                            field.cooldownUntil = m.cycle + field.cooldownCycles
+                            field.startFlare(field.chargeCycles / field.maxChargeCycles)
+                        }
+                        field.chargeCycles = 0
+                        field.chargeStarted = false
+                        field.pickupTarget = null
+                        field.wasFieldHeld = false
+                        field.blockHeldDuringField = false
+                        field.consumedUntilRelease = false
+                    }
+                    if (m.isHolding) {
+                        m.drawHold(m.holdingTarget)
+                        m.holding()
+                        m.throwBlock()
+                    } else if (!fieldPressed) m.holdingTarget = null
+                    if (fieldPressed && !field.blockHeldDuringField && !field.consumedUntilRelease) {
+                        if (!field.blockHeldDuringField && !pickupTarget) field.drawAimLine()
+                    }
+                    else if (field.flareCycles > 0) {
+                        field.flareCycles--
+                    }
+                    m.drawRegenEnergy()
+                }
+            }
+        },
     ],
     //************************************************************************************
     //************************************************************************************
@@ -7682,5 +8023,5 @@ const m = {
 };
 // Set isDisabled: false on new fields to opt them into selection.
 for (const field of m.fieldUpgrades) {
-    if (field.isDisabled === undefined) field.isDisabled = field.name !== "field emitter";
+    if (field.isDisabled === undefined) field.isDisabled = field.name !== "field emitter" && field.name !== "shrine";
 }

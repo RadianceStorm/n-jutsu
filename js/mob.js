@@ -4,6 +4,64 @@ let mob = [];
 //method to populate the array above
 const mobs = {
     mobDeaths: 0, //kills this run, bosses count as 10, reset in simulation
+    splitVerticesByLine(vertices, point, direction) {
+        const polygon = Matter.Vertices.hull(Matter.Vertices.clockwiseSort(vertices.slice()))
+        const normal = { x: -direction.y, y: direction.x }
+        const clip = side => {
+            const result = []
+            for (let i = 0; i < polygon.length; i++) {
+                const start = polygon[i]
+                const end = polygon[(i + 1) % polygon.length]
+                const startDistance = Vector.dot(Vector.sub(start, point), normal) * side
+                const endDistance = Vector.dot(Vector.sub(end, point), normal) * side
+                const startInside = startDistance >= -1e-7
+                const endInside = endDistance >= -1e-7
+                if (startInside) result.push({ x: start.x, y: start.y })
+                if (startInside !== endInside) {
+                    const fraction = startDistance / (startDistance - endDistance)
+                    result.push({
+                        x: start.x + (end.x - start.x) * fraction,
+                        y: start.y + (end.y - start.y) * fraction
+                    })
+                }
+            }
+            return result
+        }
+        const pieces = [clip(1), clip(-1)]
+        if (pieces.some(piece => piece.length < 3 || Matter.Vertices.area(piece) < 12)) return null
+        return pieces
+    },
+    makeCutBodies(source, point, direction, cutToken) {
+        const pieces = mobs.splitVerticesByLine(source.vertices, point, direction)
+        if (!pieces) return null
+        const totalArea = pieces.reduce((total, vertices) => total + Matter.Vertices.area(vertices), 0)
+        if (totalArea <= 0) return null
+        return pieces.map(vertices => {
+            const pieceArea = Matter.Vertices.area(vertices)
+            const center = Matter.Vertices.centre(vertices)
+            const fragment = Matter.Bodies.fromVertices(center.x, center.y, vertices, {
+                friction: source.friction,
+                frictionAir: source.frictionAir,
+                frictionStatic: source.frictionStatic,
+                restitution: source.restitution,
+                density: source.density
+            })
+            Matter.Body.setMass(fragment, source.mass * pieceArea / totalArea)
+            const offset = Vector.sub(center, source.position)
+            Matter.Body.setVelocity(fragment, {
+                x: source.velocity.x - source.angularVelocity * offset.y,
+                y: source.velocity.y + source.angularVelocity * offset.x
+            })
+            Matter.Body.setAngularVelocity(fragment, source.angularVelocity)
+            fragment.collisionFilter.category = cat.body
+            fragment.collisionFilter.mask = cat.player | cat.map | cat.body | cat.bullet | cat.mob | cat.mobBullet
+            fragment.classType = "body"
+            fragment.frictionAir = source.frictionAir
+            fragment.friction = source.friction
+            if (cutToken) fragment.shrineCutBy = cutToken
+            return fragment
+        })
+    },
     isPacifist() { //the pacifist run allows fewer than 3 kills per level
         return mobs.mobDeaths < 3 * level.levelsCleared
     },
@@ -1687,10 +1745,19 @@ const mobs = {
             maxMobBody: 40,
             isDropPowerUp: true,
             death() {
-                if (tech.collidePowerUps && this.isDropPowerUp) powerUps.randomize(this.position) //needs to run before onDeath spawns power ups
+                const canDropPowerUp = this.isDropPowerUp && !this.isMobBullet
+                if (tech.collidePowerUps && canDropPowerUp) powerUps.randomize(this.position) //needs to run before onDeath spawns power ups
                 this.onDeath(this); //custom death effects
                 this.removeConsBB();
                 this.alive = false; //triggers mob removal in mob[i].replace(i)
+                if (
+                    canDropPowerUp &&
+                    tech.isShrineMalevolentFeast &&
+                    m.fieldUpgrades[m.fieldMode].name === "shrine" &&
+                    Math.random() < 0.1
+                ) {
+                    powerUps.spawn(this.position.x, this.position.y, Math.random() < 0.5 ? "heal" : "Casimir")
+                }
 
                 if (localSettings.showDmgNumbers && this.dmgLog) {
                     simulation.ephemera.push({
@@ -1714,7 +1781,7 @@ const mobs = {
                 }
                 this.dmgLog = 0
 
-                if (this.isDropPowerUp) {
+                if (canDropPowerUp) {
                     if (m.alive && level.isMobDeathFreeze && !this.isFreezeAuraOnDeath) {
                         requestAnimationFrame(() => {
                             spawn.freezeGrenade(this.position.x, this.position.y, this.tier, 55, (simulation.difficultyOptions.isStrongerConstraints) ? 333 : 200) //freezeGrenade(x, y, tier = null, lifeSpan = 90, pulseRadius = 230 + 10 * tier, size = 3) {
@@ -1789,8 +1856,8 @@ const mobs = {
                             spawn.randomMobByLevelsCleared(this.position.x, this.position.y);
                         }, 1000);
                     }
-                    for (let i = 0, len = tech.isMobDeathRepeat ? 2 : 1; i < len; i++) this.deathTech(i > 0) //tech effects after mobs die, double beta decay repeats them
-                    powerUps.spawnRandomPowerUp(this.position.x, this.position.y);
+                    for (let i = 0, len = tech.isMobDeathRepeat ? 2 : 1; i < len; i++) this.deathTech(i > 0, canDropPowerUp) //tech effects after mobs die, double beta decay repeats them
+                    if (canDropPowerUp) powerUps.spawnRandomPowerUp(this.position.x, this.position.y);
                     m.lastKillCycle = m.cycle; //tracks the last time a kill was made, mostly used in simulation.checks()
                     mobs.mobDeaths += this.isBoss ? 100 : 1 //bosses count as 10 kills for the pacifist run
                     if (tech.isBotSpawnerReset) {
@@ -1802,7 +1869,7 @@ const mobs = {
                         const immuneTime = 300
                         if (m.immuneCycle < m.cycle + immuneTime) m.immuneCycle = m.cycle + immuneTime; //player is immune to damage
                     }
-                } else if (tech.isShieldAmmo && this.shield && this.shieldCount === 1) {
+                } else if (canDropPowerUp && tech.isShieldAmmo && this.shield && this.shieldCount === 1) {
                     let type = "ammo"
                     if (Math.random() < 0.4) {
                         type = "heal"
@@ -1841,11 +1908,11 @@ const mobs = {
                     }
                 }
             },
-            deathTech(isRepeat) { //tech effects after mobs die, double beta decay runs this twice
+            deathTech(isRepeat, canDropPowerUp = this.isDropPowerUp && !this.isMobBullet) { //tech effects after mobs die, double beta decay runs this twice
                 if (tech.iceIXOnDeath && this.isSlowed) {
                     for (let i = 0, len = 2 * Math.sqrt(Math.min(this.mass, 25)) * tech.iceIXOnDeath; i < len; i++) b.iceIX(3, Math.random() * 2 * Math.PI, this.position)
                 }
-                if (tech.isGhostParticle) { //spawn coupling if mob dies inside dark matter
+                if (canDropPowerUp && tech.isGhostParticle) { //spawn coupling if mob dies inside dark matter
                     for (let i = 0, len = mob.length; i < len; i++) {
                         if (mob[i].isDarkMatter && mob[i].alive) {
                             if (Vector.magnitude(Vector.sub(this.position, mob[i].position)) - this.radius < mob[i].radius) {
@@ -1855,7 +1922,7 @@ const mobs = {
                         }
                     }
                 }
-                if (tech.isBaryon && tech.isNotDarkMatter && Math.random() < (tech.isGalacticHalo ? 0.41 : 0.3)) { //spawn qubit if mob dies outside dark matter
+                if (canDropPowerUp && tech.isBaryon && tech.isNotDarkMatter && Math.random() < (tech.isGalacticHalo ? 0.41 : 0.3)) { //spawn qubit if mob dies outside dark matter
                     for (let i = 0, len = mob.length; i < len; i++) {
                         if (mob[i].isDarkMatter && mob[i].alive) {
                             if (Vector.magnitude(Vector.sub(this.position, mob[i].position)) - this.radius > mob[i].radius) {
@@ -1865,7 +1932,7 @@ const mobs = {
                         }
                     }
                 }
-                if (tech.healSpawn && Math.random() < tech.healSpawn * (tech.isCrystallography && powerUp.length === 0 ? 3 : 1)) {
+                if (canDropPowerUp && tech.healSpawn && Math.random() < tech.healSpawn * (tech.isCrystallography && powerUp.length === 0 ? 3 : 1)) {
                     powerUps.spawn(this.position.x + 20 * (Math.random() - 0.5), this.position.y + 20 * (Math.random() - 0.5), "heal");
                     simulation.drawList.push({
                         x: this.position.x,
@@ -1918,7 +1985,7 @@ const mobs = {
                     //apply mineral damage
                     tech.mineralDamage *= 1.08
                 }
-                if (isRepeat) powerUps.spawnTechPowerUps(this.position.x, this.position.y, true) //the first roll is in powerUps.spawnRandomPowerUp
+                if (canDropPowerUp && isRepeat) powerUps.spawnTechPowerUps(this.position.x, this.position.y, true) //the first roll is in powerUps.spawnRandomPowerUp
                 if (Math.random() < tech.sporesOnDeath) {
                     const amount = Math.min(25, Math.floor(2 + this.mass * (0.5 + 0.5 * Math.random())))
                     if (tech.isSporeFlea) {
@@ -2021,6 +2088,37 @@ const mobs = {
             },
             //replace dead mob with a regular body
             replace(i) {
+                if (this.shrineSlashCut) {
+                    const cutPieces = body.length < this.maxMobBody
+                        ? mobs.makeCutBodies(this, this.shrineSlashCut.point, this.shrineSlashCut.direction, this.shrineSlashCut.token)
+                        : null
+                    const pieces = cutPieces && cutPieces.filter(piece => piece.mass >= 0.5)
+                    if (pieces && pieces.length) {
+                        for (const piece of pieces) {
+                            body.push(piece)
+                            Composite.add(engine.world, piece)
+                        }
+                    } else {
+                        const vertices = Matter.Vertices.hull(Matter.Vertices.clockwiseSort(this.vertices.slice()))
+                        const corpse = Matter.Bodies.fromVertices(this.position.x, this.position.y, vertices, {
+                            friction: 0.05,
+                            frictionAir: 0.001,
+                            density: this.density
+                        })
+                        Matter.Body.setVelocity(corpse, Vector.mult(this.velocity, 0.5))
+                        Matter.Body.setAngularVelocity(corpse, this.angularVelocity)
+                        corpse.collisionFilter.category = cat.body
+                        corpse.collisionFilter.mask = cat.player | cat.map | cat.body | cat.bullet | cat.mob | cat.mobBullet
+                        corpse.classType = "body"
+                        corpse.frictionAir = 0.001
+                        corpse.friction = 0.05
+                        body.push(corpse)
+                        Composite.add(engine.world, corpse)
+                    }
+                    Matter.Composite.remove(engine.world, this);
+                    mob.splice(i, 1);
+                    return
+                }
                 //if there are too many bodies don't turn into blocks to help performance
                 // if (this.leaveBody && body.length < mobs.maxMobBody && this.mass < 200 && this.radius > 18) {
                 if (this.leaveBody && body.length < mobs.maxMobBody && this.mass < 200 * (localSettings.isHideHUD ? 0.4 : 1) && this.mass > 1 && this.radius > 18) {

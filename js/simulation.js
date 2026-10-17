@@ -25,6 +25,7 @@ const simulation = {
         simulation.draw.body();
         if (!m.isTimeDilated) mobs.loop();
         b.bulletDrawMeleeTrails(true);
+        simulation.drawFieldCursedEnergy();
         m.draw();
         m.hold();
         level.customTopLayer();
@@ -56,6 +57,7 @@ const simulation = {
         m.look();
         simulation.camera();
         level.custom();
+        simulation.drawFieldCursedEnergy();
         m.draw();
         m.hold();
         level.customTopLayer();
@@ -121,6 +123,197 @@ const simulation = {
         simulation.isTimeSkipping = false;
     },
     ephemera: [], //array that is used to store ephemera objects
+    drawFieldCursedEnergy() {
+        const field = m.fieldUpgrades[m.fieldMode]
+        if (field && field.name === "shrine" && field.drawCursedEnergy) field.drawCursedEnergy()
+    },
+    addCursedEnergy(target, options = {}) {
+        if (!target || !Array.isArray(target.vertices) || !target.position) {
+            throw new TypeError("Cursed energy requires a Matter body with vertices and a position.")
+        }
+        if (!options || typeof options !== "object" || Array.isArray(options)) {
+            throw new TypeError("Cursed energy options must be an object.")
+        }
+        const deferDraw = options.deferDraw === true
+        const parameters = {
+            color: options.color === undefined ? "#a000ff" : options.color,
+            intensity: options.intensity === undefined ? 1 : options.intensity,
+            flameSize: options.flameSize === undefined ? 1 : options.flameSize,
+            speedMultiplier: options.speedMultiplier === undefined ? 1 : options.speedMultiplier,
+            borderThicknessMultiplier: options.borderThicknessMultiplier === undefined ? 1 : options.borderThicknessMultiplier,
+            borderSpeedMultiplier: options.borderSpeedMultiplier === undefined ? 1 : options.borderSpeedMultiplier,
+            borderTransparency: options.borderTransparency === undefined ? 0.85 : options.borderTransparency,
+            transparency: options.transparency === undefined ? 0.38 : options.transparency
+        }
+        if (typeof parameters.color !== "string" || !parameters.color) {
+            throw new TypeError("Cursed energy color must be a non-empty CSS color string.")
+        }
+        for (const name of ["intensity", "flameSize", "speedMultiplier", "borderThicknessMultiplier", "borderSpeedMultiplier"]) {
+            if (!Number.isFinite(parameters[name]) || parameters[name] < 0) {
+                throw new RangeError(`Cursed energy ${name} must be a finite non-negative number.`)
+            }
+        }
+        for (const name of ["borderTransparency", "transparency"]) {
+            if (!Number.isFinite(parameters[name]) || parameters[name] < 0 || parameters[name] > 1) {
+                throw new RangeError(`Cursed energy ${name} must be between 0 and 1.`)
+            }
+        }
+        const effect = {
+            target,
+            parameters,
+            history: [],
+            particles: [],
+            do() {
+                if (this.target.alive === false || !this.target.vertices.length) {
+                    simulation.removeEphemera(this)
+                    return
+                }
+                const position = { x: this.target.position.x, y: this.target.position.y }
+                const vertices = this.target.vertices.map(vertex => ({
+                    x: vertex.x - position.x,
+                    y: vertex.y - position.y
+                }))
+                this.history.unshift({ position, vertices })
+                if (this.history.length > 6) this.history.pop()
+                const velocity = this.target.velocity || { x: 0, y: 0 }
+                const speed = Math.hypot(velocity.x, velocity.y)
+                const speedFactor = Math.min(2, speed / 40)
+                const { color, intensity, flameSize, speedMultiplier, borderThicknessMultiplier, borderSpeedMultiplier, borderTransparency, transparency } = this.parameters
+                const particleChance = Math.min(1, intensity * (0.025 + speedFactor * 0.12))
+                if (Math.random() < particleChance) {
+                    const edgeIndex = Math.floor(Math.random() * vertices.length)
+                    const start = vertices[edgeIndex]
+                    const end = vertices[(edgeIndex + 1) % vertices.length]
+                    const along = Math.random()
+                    const localPosition = {
+                        x: start.x + (end.x - start.x) * along,
+                        y: start.y + (end.y - start.y) * along
+                    }
+                    const outward = Vector.normalise(localPosition)
+                    const particleSpeed = (1.5 + Math.random() * 3 + speedFactor * 2) * speedMultiplier
+                    this.particles.push({
+                        position: { x: position.x + localPosition.x, y: position.y + localPosition.y },
+                        velocity: {
+                            x: outward.x * particleSpeed - velocity.x * 0.18,
+                            y: outward.y * particleSpeed - velocity.y * 0.18
+                        },
+                        radius: (2 + Math.random() * 4) * flameSize,
+                        life: 8 + Math.floor(Math.random() * 10)
+                    })
+                }
+                ctx.save()
+                for (let i = this.history.length - 1; i > 0; i--) {
+                    const ageFade = (this.history.length - i) / this.history.length
+                    ctx.beginPath()
+                    const snapshot = this.history[i]
+                    ctx.moveTo(snapshot.position.x + snapshot.vertices[0].x, snapshot.position.y + snapshot.vertices[0].y)
+                    for (let j = 1; j < snapshot.vertices.length; j++) {
+                        ctx.lineTo(snapshot.position.x + snapshot.vertices[j].x, snapshot.position.y + snapshot.vertices[j].y)
+                    }
+                    ctx.closePath()
+                    ctx.globalAlpha = transparency * ageFade * 0.28
+                    ctx.fillStyle = color
+                    ctx.fill()
+                }
+                ctx.beginPath()
+                ctx.moveTo(position.x + vertices[0].x, position.y + vertices[0].y)
+                for (let i = 1; i < vertices.length; i++) ctx.lineTo(position.x + vertices[i].x, position.y + vertices[i].y)
+                ctx.closePath()
+                ctx.globalAlpha = transparency
+                ctx.fillStyle = color
+                ctx.fill()
+                const phase = simulation.cycle * 0.35 * speedMultiplier * borderSpeedMultiplier
+                ctx.globalAlpha = borderTransparency
+                ctx.strokeStyle = "#000"
+                ctx.lineWidth = Math.max(1, Math.sqrt(this.target.area || 100) * 0.025 * borderThicknessMultiplier)
+                ctx.lineCap = "round"
+                ctx.lineJoin = "round"
+                for (let edge = 0; edge < vertices.length; edge++) {
+                    const start = vertices[edge]
+                    const end = vertices[(edge + 1) % vertices.length]
+                    const edgeLength = Math.hypot(end.x - start.x, end.y - start.y) || 1
+                    const normal = { x: -(end.y - start.y) / edgeLength, y: (end.x - start.x) / edgeLength }
+                    ctx.beginPath()
+                    for (let step = 0; step <= 6; step++) {
+                        const t = step / 6
+                        const jitter = (
+                            Math.sin(phase + edge * 2.3 + step * 4.1) +
+                            0.5 * Math.sin(phase * 1.73 + edge * 3.7 + step * 2.9)
+                        ) * flameSize * 2
+                        const x = position.x + start.x + (end.x - start.x) * t
+                        const y = position.y + start.y + (end.y - start.y) * t
+                        if (step === 0) ctx.moveTo(x, y)
+                        else ctx.lineTo(x + normal.x * jitter, y + normal.y * jitter)
+                    }
+                    ctx.stroke()
+                }
+                for (let i = this.particles.length - 1; i >= 0; i--) {
+                    const particle = this.particles[i]
+                    particle.position.x += particle.velocity.x * speedMultiplier
+                    particle.position.y += particle.velocity.y * speedMultiplier
+                    particle.life--
+                    if (particle.life <= 0) {
+                        this.particles.splice(i, 1)
+                        continue
+                    }
+                    const alpha = particle.life / 18
+                    const angle = Math.atan2(particle.velocity.y, particle.velocity.x)
+                    ctx.save()
+                    ctx.translate(particle.position.x, particle.position.y)
+                    ctx.rotate(angle)
+                    ctx.globalAlpha = alpha
+                    ctx.fillStyle = color
+                    ctx.beginPath()
+                    ctx.moveTo(-particle.radius, 0)
+                    ctx.quadraticCurveTo(0, -particle.radius * 0.6, particle.radius * 1.8, 0)
+                    ctx.quadraticCurveTo(0, particle.radius * 0.6, -particle.radius, 0)
+                    ctx.fill()
+                    ctx.restore()
+                }
+                ctx.restore()
+            }
+        }
+        if (!deferDraw) simulation.ephemera.push(effect)
+        return {
+            draw() {
+                effect.do()
+            },
+            setParameters(updates) {
+                if (!updates || typeof updates !== "object" || Array.isArray(updates)) {
+                    throw new TypeError("Cursed energy parameter updates must be an object.")
+                }
+                const supported = [
+                    "color",
+                    "intensity",
+                    "flameSize",
+                    "speedMultiplier",
+                    "borderThicknessMultiplier",
+                    "borderSpeedMultiplier",
+                    "borderTransparency",
+                    "transparency"
+                ]
+                for (const [name, value] of Object.entries(updates)) {
+                    if (!supported.includes(name)) throw new RangeError(`Unknown cursed energy parameter: ${name}`)
+                    if (name === "color") {
+                        if (typeof value !== "string" || !value) throw new TypeError("Cursed energy color must be a non-empty CSS color string.")
+                    } else if (name === "borderTransparency" || name === "transparency") {
+                        if (!Number.isFinite(value) || value < 0 || value > 1) throw new RangeError(`Cursed energy ${name} must be between 0 and 1.`)
+                    } else if (!Number.isFinite(value) || value < 0) {
+                        throw new RangeError(`Cursed energy ${name} must be a finite non-negative number.`)
+                    }
+                }
+                Object.assign(parameters, updates)
+            },
+            remove() {
+                if (deferDraw) {
+                    effect.history.length = 0
+                    effect.particles.length = 0
+                } else {
+                    simulation.removeEphemera(effect)
+                }
+            }
+        }
+    },
     pendingActions: [], //plain progress for callbacks that can outlive a level; saved in saveGame.state().runtime
     queueAction(action) {
         simulation.pendingActions.push(action)

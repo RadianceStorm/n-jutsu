@@ -214,16 +214,16 @@ function collisionChecks(event) {
             obj = bodyA
         } else {
             if (meleeStrike) {
-                meleeStrike.onMeleeHit(meleeTarget)
-                meleeStrike.onMeleePhysicsImpact()
+                meleeStrike.onMeleeHit(meleeTarget, pair.activeContacts[0].vertex)
+                meleeStrike.onMeleePhysicsImpact(meleeTarget)
             }
             continue
         }
 
         collideMob(who, obj, pair)
         if (meleeStrike) {
-            meleeStrike.onMeleeHit(who)
-            meleeStrike.onMeleePhysicsImpact()
+            meleeStrike.onMeleeHit(who, pair.activeContacts[0].vertex)
+            meleeStrike.onMeleePhysicsImpact(who)
         }
     }
 
@@ -340,8 +340,10 @@ function collisionChecks(event) {
                         //mob + bullet collisions
                         if (obj.classType === "bullet" && obj.speed > obj.minDmgSpeed && !m.isTimeDilated && who.damageReduction) {
 
-                            obj.beforeDmg(who); //some bullets do actions when they hits things, like despawn //forces don't seem to work here
-                            let dmg = (obj.dmg + 0.15 * obj.mass * Vector.magnitude(Vector.sub(who.velocity, obj.velocity)))
+                            obj.beforeDmg(who, { x: pair.activeContacts[0].vertex.x, y: pair.activeContacts[0].vertex.y }); //some bullets do actions when they hits things, like despawn //forces don't seem to work here
+                            let dmg = obj.isMeleeStrike
+                                ? obj.dmg
+                                : obj.dmg + 0.15 * obj.mass * Vector.magnitude(Vector.sub(who.velocity, obj.velocity))
                             if (tech.isCrit && who.isStunned) dmg *= 4
                             if (tech.isBarrierBreaker && obj.isMeleeStrike && who.shield) dmg *= 2
                             const shieldTargetID = tech.isBarrierBreaker && obj.isMeleeStrike && who.shield && who.alive ? who.shieldTargetID : null

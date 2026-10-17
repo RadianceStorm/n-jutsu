@@ -810,7 +810,14 @@ const powerUps = {
             }
 
             if (tech.mergedList.length) {
-                powerUps.Casimir.queueMerged()
+                if (tech.mergedList.includes("heal")) {
+                    if (!tech.isEnergyHealth && m.health < m.maxHealth) {
+                        const heal = (powerUps.heal.size() / 40 / (simulation.healScale ** 0.25)) ** 2
+                        m.addHealth(heal)
+                    }
+                }
+                const mergedRewards = tech.mergedList.filter(reward => reward !== "heal")
+                if (mergedRewards.length) powerUps.Casimir.queueMerged({ rewards: mergedRewards })
             }
         },
     },
@@ -2002,7 +2009,7 @@ const powerUps = {
         }
     },
     directSpawn(x, y, name, moving = true, size = powerUps[name].size(), isDuplicated = false) {
-        if (tech.mergedList.length) {
+        if (name !== "Casimir" && tech.mergedList.length) {
             for (let i = 0; i < tech.mergedList.length; i++) {
                 if (name === tech.mergedList[i]) {
                     name = "Casimir"
